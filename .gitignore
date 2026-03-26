@@ -1,0 +1,6 @@
+.venv
+__pycache__
+.DS_Store
+*.mov
+*.mp4
+assets

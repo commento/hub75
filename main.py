@@ -1,0 +1,144 @@
+# main.py
+
+import pygame
+import numpy as np
+import cv2
+import random
+
+from config import WIDTH, HEIGHT, FPS, SCALE, IMAGE_PATH
+from audio_input import start_audio_stream, get_latest_audio_frame
+from audio_features import StereoFeatureExtractor
+from visual_engine import VisualEngineClean
+
+SHOW_DEBUG = True
+
+def draw_debug_text(screen, font, features):
+    lines = [
+        f"RMS: {features['rms']:.2f}",
+        f"LOW: {features['low']:.2f}",
+        f"MID: {features['mid']:.2f}",
+        f"HIGH: {features['high']:.2f}",
+        "D = debug on/off",
+        "ESC = quit"
+    ]
+    y = 10
+    for line in lines:
+        surf = font.render(line, True, (255, 255, 255))
+        screen.blit(surf, (10, y))
+        y += 20
+
+def main():
+    global SHOW_DEBUG
+
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH*SCALE, HEIGHT*SCALE))
+    pygame.display.set_caption("Edge Reactive Engine V4 Clean")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("Arial", 18)
+
+    # avvia audio
+    stream = start_audio_stream()
+    extractor = StereoFeatureExtractor()
+    visual = VisualEngineClean(IMAGE_PATH, WIDTH, HEIGHT)
+
+    cap = cv2.VideoCapture("video3.mov")
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # soglia kick
+    KICK_THRESHOLD = 0.60
+
+    # flag per evitare multi-trigger nello stesso colpo
+    kick_triggered = False
+
+    def get_random_frame(cap, total_frames):
+        frame_idx = random.randint(0, total_frames-1)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = cap.read()
+        frame = cv2.resize(frame, (64, 64))
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return frame_rgb
+
+    running = True
+    try:
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key == pygame.K_d:
+                        SHOW_DEBUG = not SHOW_DEBUG
+
+            audio_frame = get_latest_audio_frame()
+            # features = extractor.extract(audio_frame)
+
+            # frame = visual.update(features)
+
+            # estrai RMS dalla tua pipeline audio
+            features = extractor.extract(audio_frame)  # {"rms":..., "low":..., "mid":..., "high":...}
+            
+            # kick detection
+            if features["low"] > KICK_THRESHOLD and not kick_triggered:
+                visual.base_img = get_random_frame(cap, total_frames)
+                visual.luma = visual.compute_luma(visual.base_img)
+                visual.edge_map = visual.compute_edge_map(visual.luma)
+                kick_triggered = True
+            elif features["low"] <= KICK_THRESHOLD:
+                kick_triggered = False
+            ret, frame = cap.read()
+            if not ret:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
+                ret, frame = cap.read()
+            frame = cv2.resize(frame, (64,64))
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            visual.base_img = frame_rgb  # aggiorna il frame corrente
+            visual.luma = visual.compute_luma(frame_rgb)
+            visual.edge_map = visual.compute_edge_map(visual.luma)
+            
+            # applica edge-reactive
+            frame = visual.update(features)
+
+            # prepara superficie pygame
+            surface = pygame.surfarray.make_surface(np.transpose(frame, (1,0,2)))
+            surface = pygame.transform.scale(surface, (WIDTH*SCALE, HEIGHT*SCALE))
+            screen.blit(surface, (0,0))
+
+            if SHOW_DEBUG:
+                draw_debug_text(screen, font, features)
+
+            pygame.display.flip()
+            clock.tick(FPS)
+
+    finally:
+        stream.stop()
+        stream.close()
+        pygame.quit()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+visual = VisualEngineClean(image_path=None, width=64, height=64)
+
+# dentro il loop
+ret, frame = cap.read()
+if not ret:
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
+    ret, frame = cap.read()
+
+frame = cv2.resize(frame, (64,64))
+frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+visual.base_img = frame_rgb  # aggiorna il frame corrente
+visual.luma = visual.compute_luma(frame_rgb)
+visual.edge_map = visual.compute_edge_map(visual.luma)
+
+# poi applica update(features) come prima
+img_out = visual.update(features)
