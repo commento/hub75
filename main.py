@@ -41,7 +41,7 @@ def main():
     extractor = StereoFeatureExtractor()
     visual = VisualEngineClean(IMAGE_PATH, WIDTH, HEIGHT)
 
-    cap = cv2.VideoCapture("video3.mov")
+    cap = cv2.VideoCapture("video.mp4")
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # soglia kick
@@ -120,25 +120,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-visual = VisualEngineClean(image_path=None, width=64, height=64)
-
-# dentro il loop
-ret, frame = cap.read()
-if not ret:
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
-    ret, frame = cap.read()
-
-frame = cv2.resize(frame, (64,64))
-frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-visual.base_img = frame_rgb  # aggiorna il frame corrente
-visual.luma = visual.compute_luma(frame_rgb)
-visual.edge_map = visual.compute_edge_map(visual.luma)
-
-# poi applica update(features) come prima
-img_out = visual.update(features)
