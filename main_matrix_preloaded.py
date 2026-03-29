@@ -29,7 +29,7 @@ def setup_matrix():
 
     # ---- mapping HUB75 ----
     # prova "adafruit-hat" oppure "regular"
-    options.hardware_mapping = "adafruit-hat"
+    options.hardware_mapping = "regular"
 
     # ---- tuning ----
     options.gpio_slowdown = 4
@@ -82,7 +82,7 @@ def main():
     # Visual Engine
     # -----------------------------------------
     print("[VISUAL] Initializing visual engine...")
-    visual = VisualEngineClean("base.jpg", WIDTH, HEIGHT)
+    visual = VisualEngineClean("assets/base.jpg", WIDTH, HEIGHT)
 
     # -----------------------------------------
     # Video preload

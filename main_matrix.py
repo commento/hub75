@@ -24,7 +24,7 @@ def setup_matrix():
     options.parallel = 1
 
     # ===== hardware =====
-    options.hardware_mapping = "adafruit-hat"   # oppure "regular" a seconda del tuo adattatore
+    options.hardware_mapping = "regular"   # oppure "regular" a seconda del tuo adattatore
     options.gpio_slowdown = 4                   # spesso utile su Pi 4/5
     options.brightness = 70
     options.pwm_bits = 11
@@ -76,7 +76,7 @@ def main():
     extractor = StereoFeatureExtractor()
 
     # ===== Visual engine =====
-    visual = VisualEngineClean("base.jpg", WIDTH, HEIGHT)
+    visual = VisualEngineClean("assets/base.jpg", WIDTH, HEIGHT)
 
     # ===== Video =====
     cap = cv2.VideoCapture("video.mov")
