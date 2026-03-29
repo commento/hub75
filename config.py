@@ -7,10 +7,10 @@ BLOCK_SIZE = 1024
 CHANNELS = 2
 
 # ========= VISUAL =========
-WIDTH = 128
-HEIGHT = 128
+WIDTH = 64
+HEIGHT = 64
 FPS = 30
-SCALE = 10
+SCALE = 8
 
 # ========= IMAGE =========
 IMAGE_PATH = "assets/base.jpg"
