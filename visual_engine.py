@@ -14,13 +14,36 @@ class VisualEngineClean:
         self.motion_map = np.zeros_like(self.luma)
         self.time = 0.0
 
+    def apply_red_grade(self, img, strength=1.0):
+        out = img.astype(np.float32)
+
+        # luma per mantenere un po' di leggibilità
+        luma = self.compute_luma(img) / 255.0
+        luma = np.expand_dims(luma, axis=2)
+
+        # palette rosso / sangue
+        red_boost   = 1.35 + 0.25 * strength
+        green_scale = 0.35
+        blue_scale  = 0.28
+
+        out[:,:,0] *= red_boost
+        out[:,:,1] *= green_scale
+        out[:,:,2] *= blue_scale
+
+        # un po' di glow sui chiari
+        out[:,:,0] += luma[:,:,0] * 45.0
+        out[:,:,1] += luma[:,:,0] * 8.0
+        out[:,:,2] += luma[:,:,0] * 4.0
+
+        return np.clip(out, 0, 255).astype(np.uint8)
+
     def load_base_image(self, path):
         img = Image.open(path).convert("RGB")
         img = img.resize((self.width, self.height), Image.Resampling.LANCZOS)
         return np.array(img, dtype=np.uint8)
 
     def compute_luma(self, img):
-        return (0.299*img[:,:,0] + 0.587*img[:,:,1] + 0.114*img[:,:,2]).astype(np.float32)
+        return (0.299 * img[:,:,0] + 0.587 * img[:,:,1] + 0.114 * img[:,:,2]).astype(np.float32)
 
     def blur3(self, arr):
         padded = np.pad(arr, ((1,1),(1,1)), mode='edge')
@@ -37,14 +60,9 @@ class VisualEngineClean:
         gx[:,1:-1] = luma[:,2:] - luma[:,:-2]
         gy[1:-1,:] = luma[2:,:] - luma[:-2,:]
         mag = np.sqrt(gx*gx + gy*gy)
-
-        # meno blur = edge più secchi
         mag = self.blur3(mag)
         mag = mag / (np.max(mag) + 1e-6)
-
-        # edge molto più contrastati
-        mag = np.clip((mag - 0.08) * 4.5, 0.0, 1.0)
-        return mag
+        return np.clip(mag, 0.0, 1.0)
 
     def compute_motion_map(self, current_luma):
         diff = np.abs(current_luma - self.prev_luma)
@@ -53,111 +71,132 @@ class VisualEngineClean:
         self.prev_luma = current_luma.copy()
         return diff
 
-    def contour_displacement_static_only(self, img, amount):
+    # =========================================
+    # NUOVA MASCHERA: TUTTO CIO' CHE E' STATICO
+    # =========================================
+    def get_static_field_mask(self):
+        # motion basso = statico
+        static_mask = 1.0 - np.clip(self.motion_map * 2.8, 0.0, 1.0)
+
+        # leggera esclusione di zone completamente piatte
+        local_mean = self.blur3(self.luma)
+        texture = np.abs(self.luma - local_mean)
+        texture = self.blur3(texture)
+        texture = texture / (np.max(texture) + 1e-6)
+
+        # IMPORTANTISSIMO:
+        # qui la texture pesa poco, non deve dominare
+        field_mask = static_mask * (0.55 + texture * 0.45)
+
+        # morbidezza
+        field_mask = self.blur3(field_mask)
+        field_mask = np.clip(field_mask, 0.0, 1.0)
+
+        return field_mask
+
+    # =========================================
+    # DISPLACEMENT GROSSO SU MASSE STATICHE
+    # =========================================
+    def static_field_displacement(self, img, amount):
         if amount < 0.02:
             return img.copy()
 
-        # displacement MOLTO più visibile su 64x64
-        dx = int(np.sin(self.time * 2.2) * (2 + amount * 10000))
-        dy = int(np.cos(self.time * 1.7) * (2 + amount * 10000))
-
-        shifted = np.roll(img, shift=(dy, dx), axis=(0,1))
-
-        edge_mask = self.edge_map > 0.18
-        static_mask = self.motion_map < 0.18
-        final_mask = edge_mask & static_mask
-
+        mask = self.get_static_field_mask()
         out = img.copy()
+
+        amp = 1 + int(amount * 8)
+
+        dx1 = int(np.sin(self.time * 1.7) * amp)
+        dy1 = int(np.cos(self.time * 1.3) * amp)
+
+        dx2 = int(np.sin(self.time * 2.4 + 1.2) * amp)
+        dy2 = int(np.cos(self.time * 2.1 + 0.7) * amp)
+
+        shifted1 = np.roll(img, shift=(dy1, dx1), axis=(0,1))
+        shifted2 = np.roll(img, shift=(dy2, dx2), axis=(0,1))
+
+        # mix dei due spostamenti
+        mixed = ((shifted1.astype(np.float32) * 0.5) + (shifted2.astype(np.float32) * 0.5)).astype(np.uint8)
+
         for c in range(3):
-            channel = out[:,:,c]
-            channel[final_mask] = shifted[:,:,c][final_mask]
-            out[:,:,c] = channel
+            out[:,:,c] = (
+                img[:,:,c] * (1.0 - mask) +
+                mixed[:,:,c] * mask
+            ).astype(np.uint8)
 
         return out
 
-    def edge_rgb_glitch_static_only(self, img, amount):
+    # =========================================
+    # RGB SPLIT MOLTO PIU' VISIBILE
+    # =========================================
+    def static_field_rgb_split(self, img, amount):
         if amount < 0.02:
             return img.copy()
 
+        mask = self.get_static_field_mask()
         out = img.copy()
 
-        edge_mask = self.edge_map > 0.15
-        static_mask = self.motion_map < 0.18
-        final_mask = edge_mask & static_mask
-
-        # shift aggressivi per 64x64
-        shift_r_x = int(1 + amount * 4)
-        shift_b_x = int(-(1 + amount * 4))
-        shift_g_y = int(np.sin(self.time * 2.8) * (1 + amount * 3))
+        shift_r_x = int(1 + amount * 6)
+        shift_g_y = int(np.sin(self.time * 2.1) * (1 + amount * 5))
+        shift_b_x = int(-(1 + amount * 6))
 
         r = np.roll(img[:,:,0], shift=(0, shift_r_x), axis=(0,1))
         g = np.roll(img[:,:,1], shift=(shift_g_y, 0), axis=(0,1))
         b = np.roll(img[:,:,2], shift=(0, shift_b_x), axis=(0,1))
 
-        out[:,:,0][final_mask] = r[final_mask]
-        out[:,:,1][final_mask] = g[final_mask]
-        out[:,:,2][final_mask] = b[final_mask]
+        out[:,:,0] = (img[:,:,0] * (1.0 - mask) + r * mask).astype(np.uint8)
+        out[:,:,1] = (img[:,:,1] * (1.0 - mask) + g * mask).astype(np.uint8)
+        out[:,:,2] = (img[:,:,2] * (1.0 - mask) + b * mask).astype(np.uint8)
 
         return out
 
-    def edge_color_burn_static_only(self, img, amount):
+    # =========================================
+    # COLOR SHIFT SULLE SUPERFICI STATICHE
+    # =========================================
+    def static_field_color_push(self, img, amount):
         if amount < 0.02:
             return img.copy()
 
+        mask = self.get_static_field_mask()
         out = img.astype(np.float32)
 
-        edge_mask = self.edge_map > 0.14
-        static_mask = self.motion_map < 0.18
-        final_mask = edge_mask & static_mask
+        pulse = (0.5 + 0.5 * np.sin(self.time * 3.0)) * amount
 
-        # colori edge più estremi
-        edge_strength = self.edge_map * amount
-
-        # palette glitch: magenta/cyan/acid green
-        red_boost   = edge_strength * 180.0
-        green_boost = edge_strength * 80.0
-        blue_boost  = edge_strength * 200.0
-
-        out[:,:,0][final_mask] += red_boost[final_mask]
-        out[:,:,1][final_mask] += green_boost[final_mask]
-        out[:,:,2][final_mask] += blue_boost[final_mask]
+        out[:,:,0] += mask * pulse * 180.0
+        out[:,:,1] += mask * pulse * 40.0
+        out[:,:,2] += mask * pulse * 220.0
 
         return np.clip(out, 0, 255).astype(np.uint8)
 
-    def edge_inversion_flash_static_only(self, img, amount):
-        if amount < 0.03:
-            return img.copy()
-
-        edge_mask = self.edge_map > 0.22
-        static_mask = self.motion_map < 0.18
-        final_mask = edge_mask & static_mask
-
-        out = img.copy()
-        inv = 255 - out
-        for c in range(3):
-            out[:,:,c][final_mask] = (
-                out[:,:,c][final_mask] * (1.0 - amount * 0.6) +
-                inv[:,:,c][final_mask] * (amount * 0.6)
-            ).astype(np.uint8)
-
-        return out
-
+    # =========================================
+    # GLUE: PRESERVA LE PARTI IN MOVIMENTO
+    # =========================================
     def preserve_moving_areas(self, img):
-        # più movimento = meno glitch
-        moving_mask = np.expand_dims(np.clip(self.motion_map * 2.5, 0.0, 1.0), axis=2)
-        out = img.astype(np.float32) * (1.0 - moving_mask * 0.45) + self.base_img.astype(np.float32) * (moving_mask * 0.45)
+        moving_mask = np.expand_dims(np.clip(self.motion_map * 3.0, 0.0, 1.0), axis=2)
+
+        out = (
+            img.astype(np.float32) * (1.0 - moving_mask * 0.75) +
+            self.base_img.astype(np.float32) * (moving_mask * 0.75)
+        )
+
         return np.clip(out, 0, 255).astype(np.uint8)
 
+    # =========================================
+    # RITORNO ALLA QUIETE IN SILENZIO
+    # =========================================
     def preserve_stillness(self, img, rms):
         if rms > 0.05:
             return img.copy()
 
-        alpha = np.clip((0.05 - rms) / 0.05, 0.0, 1.0) * 0.80
+        alpha = np.clip((0.05 - rms) / 0.05, 0.0, 1.0) * 0.75
         out = img.astype(np.float32) * (1.0 - alpha) + self.base_img.astype(np.float32) * alpha
         return np.clip(out, 0, 255).astype(np.uint8)
 
+    # =========================================
+    # UPDATE
+    # =========================================
     def update(self, features):
-        self.time += 0.05
+        self.time += 0.06
 
         rms = features["rms"]
         low = features["low"]
@@ -166,23 +205,22 @@ class VisualEngineClean:
         transient = features.get("transient", 0.0)
 
         img = self.base_img.copy()
+        
+        # MASSA STATICA: displacement vero
+        img = self.static_field_displacement(img, amount=low * 1.1 + mid * 0.8)
 
-        # 1) displacement molto visibile
-        img = self.contour_displacement_static_only(img, amount=mid * 1.4 + low * 0.4)
+        # MASSA STATICA: separazione colore
+        img = self.static_field_rgb_split(img, amount=high * 1000 + transient * 1000)
 
-        # 2) rgb split molto evidente
-        img = self.edge_rgb_glitch_static_only(img, amount=high * 1.3 + mid * 0.5)
+        # MASSA STATICA: push cromatico
+        img = self.static_field_color_push(img, amount=high * 0.1 + mid * 0.1)
 
-        # 3) color burn forte sugli edge
-        img = self.edge_color_burn_static_only(img, amount=high * 1.1 + transient * 0.8)
+        img = self.apply_red_grade(img, strength=1.0)
 
-        # 4) piccoli flash invertiti sui bordi statici
-        img = self.edge_inversion_flash_static_only(img, amount=transient * 0.9)
-
-        # 5) preserva il movimento reale
+        # preserva movimento
         img = self.preserve_moving_areas(img)
 
-        # 6) in silenzio torna più leggibile
+        # se silenzio, torna leggibile
         img = self.preserve_stillness(img, rms)
 
         return img

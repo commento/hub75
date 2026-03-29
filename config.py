@@ -1,14 +1,14 @@
 # config.py
 
 # ========= AUDIO =========
-AUDIO_DEVICE = 2
+AUDIO_DEVICE = 0
 SAMPLE_RATE = 48000
 BLOCK_SIZE = 1024
 CHANNELS = 2
 
 # ========= VISUAL =========
-WIDTH = 64
-HEIGHT = 64
+WIDTH = 128
+HEIGHT = 128
 FPS = 30
 SCALE = 8
 
