@@ -7,8 +7,8 @@ BLOCK_SIZE = 1024
 CHANNELS = 2
 
 # ========= VISUAL =========
-WIDTH = 64
-HEIGHT = 64
+WIDTH = 128
+HEIGHT = 128
 FPS = 30
 SCALE = 10
 

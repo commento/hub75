@@ -41,11 +41,12 @@ def main():
     extractor = StereoFeatureExtractor()
     visual = VisualEngineClean(IMAGE_PATH, WIDTH, HEIGHT)
 
-    cap = cv2.VideoCapture("video.mp4")
+
+    cap = cv2.VideoCapture("video.mov")
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # soglia kick
-    KICK_THRESHOLD = 0.60
+    KICK_THRESHOLD = 0.50
 
     # flag per evitare multi-trigger nello stesso colpo
     kick_triggered = False
@@ -57,7 +58,7 @@ def main():
         if not ret:
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = cap.read()
-        frame = cv2.resize(frame, (64, 64))
+        frame = cv2.resize(frame, (WIDTH, HEIGHT))
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame_rgb
 
@@ -82,22 +83,25 @@ def main():
             features = extractor.extract(audio_frame)  # {"rms":..., "low":..., "mid":..., "high":...}
             
             # kick detection
-            if features["low"] > KICK_THRESHOLD and not kick_triggered:
+            if features["rms"] > KICK_THRESHOLD and not kick_triggered:
                 visual.base_img = get_random_frame(cap, total_frames)
                 visual.luma = visual.compute_luma(visual.base_img)
                 visual.edge_map = visual.compute_edge_map(visual.luma)
+                visual.motion_map = visual.compute_motion_map(visual.luma)
                 kick_triggered = True
-            elif features["low"] <= KICK_THRESHOLD:
+            elif features["rms"] <= KICK_THRESHOLD:
                 kick_triggered = False
-            ret, frame = cap.read()
-            if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
-                ret, frame = cap.read()
-            frame = cv2.resize(frame, (64,64))
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            visual.base_img = frame_rgb  # aggiorna il frame corrente
-            visual.luma = visual.compute_luma(frame_rgb)
-            visual.edge_map = visual.compute_edge_map(visual.luma)
+                if features["rms"] != 0.0:  # se c'è un po' di audio ma non è un kick, aggiorna normalmente
+                    ret, frame = cap.read()
+                    if not ret:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
+                        ret, frame = cap.read()
+                    frame = cv2.resize(frame, (WIDTH,HEIGHT))
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    visual.base_img = frame_rgb  # aggiorna il frame corrente
+                    visual.luma = visual.compute_luma(frame_rgb)
+                    visual.edge_map = visual.compute_edge_map(visual.luma)
+                    visual.motion_map = visual.compute_motion_map(visual.luma)
             
             # applica edge-reactive
             frame = visual.update(features)
