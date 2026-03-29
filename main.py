@@ -12,6 +12,15 @@ from visual_engine import VisualEngineClean
 
 SHOW_DEBUG = True
 
+def is_black_frame(frame_rgb, threshold=18, dark_ratio=0.92):
+    luma = (
+        0.299 * frame_rgb[:,:,0] +
+        0.587 * frame_rgb[:,:,1] +
+        0.114 * frame_rgb[:,:,2]
+    )
+    dark_pixels = np.mean(luma < threshold)
+    return dark_pixels > dark_ratio
+
 def draw_debug_text(screen, font, features):
     lines = [
         f"RMS: {features['rms']:.2f}",
@@ -51,16 +60,25 @@ def main():
     # flag per evitare multi-trigger nello stesso colpo
     kick_triggered = False
 
-    def get_random_frame(cap, total_frames):
-        frame_idx = random.randint(0, total_frames-1)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        if not ret:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    def get_random_frame(cap, total_frames, max_tries=12):
+        for _ in range(max_tries):
+            frame_idx = random.randint(0, total_frames - 1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+
+
             ret, frame = cap.read()
-        frame = cv2.resize(frame, (WIDTH, HEIGHT))
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return frame_rgb
+            if not ret:
+                continue
+
+            frame = cv2.resize(frame, (WIDTH, HEIGHT))
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            if not is_black_frame(frame_rgb):
+                return frame_rgb
+
+        # fallback se trova solo nero
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = cap.read()
 
     running = True
     try:
@@ -99,6 +117,9 @@ def main():
                     ret, frame = cap.read()
                 frame = cv2.resize(frame, (WIDTH,HEIGHT))
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # se troppo nero -> jump random
+                if is_black_frame(frame_rgb):
+                    frame_rgb = get_random_frame(cap, total_frames)
                 visual.base_img = frame_rgb  # aggiorna il frame corrente
                 visual.luma = visual.compute_luma(frame_rgb)
                 visual.edge_map = visual.compute_edge_map(visual.luma)
