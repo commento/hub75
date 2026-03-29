@@ -91,17 +91,18 @@ def main():
                 kick_triggered = True
             elif features["rms"] <= KICK_THRESHOLD:
                 kick_triggered = False
-                if features["rms"] != 0.0:  # se c'è un po' di audio ma non è un kick, aggiorna normalmente
+                if features["rms"] < 0.001:
+                    continue
+                ret, frame = cap.read()
+                if not ret:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
                     ret, frame = cap.read()
-                    if not ret:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop video
-                        ret, frame = cap.read()
-                    frame = cv2.resize(frame, (WIDTH,HEIGHT))
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    visual.base_img = frame_rgb  # aggiorna il frame corrente
-                    visual.luma = visual.compute_luma(frame_rgb)
-                    visual.edge_map = visual.compute_edge_map(visual.luma)
-                    visual.motion_map = visual.compute_motion_map(visual.luma)
+                frame = cv2.resize(frame, (WIDTH,HEIGHT))
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                visual.base_img = frame_rgb  # aggiorna il frame corrente
+                visual.luma = visual.compute_luma(frame_rgb)
+                visual.edge_map = visual.compute_edge_map(visual.luma)
+                visual.motion_map = visual.compute_motion_map(visual.luma)
             
             # applica edge-reactive
             frame = visual.update(features)

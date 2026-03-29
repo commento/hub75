@@ -112,7 +112,7 @@ def main():
                     kick_triggered = False
 
                 # playback normale
-                if features["rms"] != 0.0:
+                if features["rms"] > 0.01:  # se c'è un minimo di segnale, altrimenti evita di leggere nuovi frame
                     frame_rgb = get_next_video_frame(cap, WIDTH, HEIGHT)
                 else:
                     # se silenzio, tieni il frame corrente
