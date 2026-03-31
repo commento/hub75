@@ -36,7 +36,7 @@ def setup_matrix():
     options.brightness = 70
     options.pwm_bits = 11
     options.pwm_lsb_nanoseconds = 130
-    options.disable_hardware_pulsing = False
+    options.disable_hardware_pulsing = True
     options.limit_refresh_rate_hz = 120
 
     matrix = RGBMatrix(options=options)
@@ -93,7 +93,7 @@ def main():
         width=WIDTH,
         height=HEIGHT,
         max_frames=None,   # oppure es. 2000 se vuoi limitare
-        step=1             # usa 2 o 3 se vuoi alleggerire
+        step=3             # usa 2 o 3 se vuoi alleggerire
     )
 
     current_video_idx = 0

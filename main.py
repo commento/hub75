@@ -51,7 +51,7 @@ def main():
     visual = VisualEngineClean(IMAGE_PATH, WIDTH, HEIGHT)
 
 
-    cap = cv2.VideoCapture("video.mov")
+    cap = cv2.VideoCapture("video.mp4")
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # soglia kick

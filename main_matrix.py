@@ -12,7 +12,20 @@ from config import WIDTH, HEIGHT
 from audio_input import start_audio_stream, get_latest_audio_frame
 from audio_features import StereoFeatureExtractor
 from visual_engine import VisualEngineClean
+from pathlib import Path
 
+BASE_DIR = Path(__file__).resolve().parent
+IMAGE_PATH = BASE_DIR / "base.jpg"
+VIDEO_PATH = BASE_DIR / "video.mov"
+
+def is_black_frame(frame_rgb, threshold=18, dark_ratio=0.92):
+    luma = (
+        0.299 * frame_rgb[:,:,0] +
+        0.587 * frame_rgb[:,:,1] +
+        0.114 * frame_rgb[:,:,2]
+    )
+    dark_pixels = np.mean(luma < threshold)
+    return dark_pixels > dark_ratio
 
 def setup_matrix():
     options = RGBMatrixOptions()
@@ -29,7 +42,7 @@ def setup_matrix():
     options.brightness = 70
     options.pwm_bits = 11
     options.pwm_lsb_nanoseconds = 130
-    options.disable_hardware_pulsing = False
+    options.disable_hardware_pulsing = True
 
     # ===== qualità =====
     options.limit_refresh_rate_hz = 120
@@ -49,10 +62,13 @@ def get_random_frame(cap, total_frames, width, height):
 
     frame = cv2.resize(frame, (width, height))
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    if not is_black_frame(frame_rgb):
+    	return frame_rgb
     return frame_rgb
 
 
-def get_next_video_frame(cap, width, height):
+def get_next_video_frame(cap, width, height, total_frames):
     ret, frame = cap.read()
 
     if not ret:
@@ -61,6 +77,9 @@ def get_next_video_frame(cap, width, height):
 
     frame = cv2.resize(frame, (width, height))
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    if is_black_frame(frame_rgb):
+        frame_rgb = get_random_frame(cap, total_frames, width, height)
     return frame_rgb
 
 
@@ -76,10 +95,10 @@ def main():
     extractor = StereoFeatureExtractor()
 
     # ===== Visual engine =====
-    visual = VisualEngineClean("assets/base.jpg", WIDTH, HEIGHT)
+    visual = VisualEngineClean(IMAGE_PATH, WIDTH, HEIGHT)
 
     # ===== Video =====
-    cap = cv2.VideoCapture("video.mov")
+    cap = cv2.VideoCapture(VIDEO_PATH)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # ===== Kick detection =====
@@ -113,7 +132,7 @@ def main():
 
                 # playback normale
                 if features["rms"] > 0.01:  # se c'è un minimo di segnale, altrimenti evita di leggere nuovi frame
-                    frame_rgb = get_next_video_frame(cap, WIDTH, HEIGHT)
+                    frame_rgb = get_next_video_frame(cap, WIDTH, HEIGHT, total_frames)
                 else:
                     # se silenzio, tieni il frame corrente
                     frame_rgb = visual.base_img.copy()

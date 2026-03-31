@@ -1,7 +1,7 @@
 # config.py
 
 # ========= AUDIO =========
-AUDIO_DEVICE = 2
+AUDIO_DEVICE = -2
 SAMPLE_RATE = 48000
 BLOCK_SIZE = 1024
 CHANNELS = 2
