@@ -29,7 +29,7 @@ def setup_matrix():
     options.brightness = 70
     options.pwm_bits = 11
     options.pwm_lsb_nanoseconds = 130
-    options.disable_hardware_pulsing = False
+    options.disable_hardware_pulsing = True
 
     # ===== qualità =====
     options.limit_refresh_rate_hz = 120
