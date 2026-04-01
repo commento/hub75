@@ -173,7 +173,7 @@ def main():
     KICK_THRESHOLD = 0.50
     kick_triggered = False
     last_kick_time = 0.0
-    KICK_COOLDOWN = 0.35  # secondi
+    KICK_COOLDOWN = 0.45  # secondi
 
     # ===== Silence freeze =====
     SILENCE_THRESHOLD = 0.015
@@ -227,17 +227,31 @@ def main():
             # =========================
             # KICK JUMP (RAM BUFFER)
             # =========================
-            if (
-                features["rms"] > KICK_THRESHOLD
-                and not kick_triggered
-                and (now - last_kick_time) > KICK_COOLDOWN
-            ):
+            # =========================
+            # MUSICAL JUMP DETECTION
+            # =========================
+            kick_energy = (
+                features["low"] * 0.75 +
+                features.get("transient", 0.0) * 1.15 +
+                features["rms"] * 0.20
+            )
+
+            jump_condition = (
+                features["low"] > 0.18 and
+                features.get("transient", 0.0) > 0.12 and
+                features["rms"] > 0.03 and
+                kick_energy > 0.32 and
+                (now - last_kick_time) > KICK_COOLDOWN and
+                not kick_triggered
+            )
+
+            if jump_condition:
                 frame_rgb = get_random_preloaded_frame(random_buffer)
                 kick_triggered = True
                 last_kick_time = now
-
             else:
-                if features["rms"] <= KICK_THRESHOLD:
+                # reset trigger solo quando il colpo è davvero finito
+                if features["low"] < 0.10 and features.get("transient", 0.0) < 0.06:
                     kick_triggered = False
 
                 # playback normale
@@ -250,6 +264,17 @@ def main():
 
                 if frame_rgb is None:
                     frame_rgb = visual.base_img.copy()
+
+                        # playback normale
+                        frame_rgb = get_next_video_frame(
+                            cap,
+                            WIDTH,
+                            HEIGHT,
+                            random_buffer=random_buffer
+                        )
+
+                        if frame_rgb is None:
+                            frame_rgb = visual.base_img.copy()
 
             # =========================
             # UPDATE VISUAL SOURCE
