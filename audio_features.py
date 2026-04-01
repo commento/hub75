@@ -39,8 +39,8 @@ class StereoFeatureExtractor:
         rms_raw = float(np.sqrt(np.mean(mono ** 2) + 1e-9))
 
         # adaptive noise floor
-        self.noise_floor = 0.995 * self.noise_floor + 0.005 * rms_raw
-        rms = max(0.0, rms_raw - self.noise_floor * 1.15)
+        #self.noise_floor = 0.995 * self.noise_floor + 0.005 * rms_raw
+        rms = rms_raw #max(0.0, rms_raw - self.noise_floor * 1.15)
         rms = np.clip(rms * 12.0, 0.0, 1.0)
 
         window = np.hanning(len(mono))

@@ -215,7 +215,7 @@ class VisualEngineClean:
         # MASSA STATICA: push cromatico
         img = self.static_field_color_push(img, amount=high * 0.1 + mid * 0.1)
 
-        #img = self.apply_red_grade(img, strength=1.0)
+        img = self.apply_red_grade(img, strength=1.0)
 
         # preserva movimento
         img = self.preserve_moving_areas(img)
