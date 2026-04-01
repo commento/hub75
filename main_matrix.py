@@ -265,16 +265,16 @@ def main():
                 if frame_rgb is None:
                     frame_rgb = visual.base_img.copy()
 
-                        # playback normale
-                        frame_rgb = get_next_video_frame(
-                            cap,
-                            WIDTH,
-                            HEIGHT,
-                            random_buffer=random_buffer
-                        )
+                # playback normale
+                frame_rgb = get_next_video_frame(
+                    cap,
+                    WIDTH,
+                    HEIGHT,
+                    random_buffer=random_buffer
+                )
 
-                        if frame_rgb is None:
-                            frame_rgb = visual.base_img.copy()
+                if frame_rgb is None:
+                    frame_rgb = visual.base_img.copy()
 
             # =========================
             # UPDATE VISUAL SOURCE
