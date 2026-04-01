@@ -204,25 +204,25 @@ def main():
             # =========================
             # FREEZE SE SILENZIO
             # =========================
-            if no_audio:
-                pil_img = Image.fromarray(frozen_output)
-                offscreen_canvas.SetImage(pil_img, 0, 0)
-                offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+            # if no_audio:
+            #     pil_img = Image.fromarray(frozen_output)
+            #     offscreen_canvas.SetImage(pil_img, 0, 0)
+            #     offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
-                print(
-                    f"RMS:{features['rms']:.2f} "
-                    f"LOW:{features['low']:.2f} "
-                    f"MID:{features['mid']:.2f} "
-                    f"HIGH:{features['high']:.2f} "
-                    f"[FREEZE]",
-                    end="\r"
-                )
+            #     print(
+            #         f"RMS:{features['rms']:.2f} "
+            #         f"LOW:{features['low']:.2f} "
+            #         f"MID:{features['mid']:.2f} "
+            #         f"HIGH:{features['high']:.2f} "
+            #         f"[FREEZE]",
+            #         end="\r"
+            #     )
 
-                elapsed = time.time() - loop_start
-                sleep_time = frame_duration - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                continue
+            #     elapsed = time.time() - loop_start
+            #     sleep_time = frame_duration - elapsed
+            #     if sleep_time > 0:
+            #         time.sleep(sleep_time)
+            #     continue
 
             # =========================
             # KICK JUMP (RAM BUFFER)
