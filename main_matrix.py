@@ -17,6 +17,74 @@ IMAGE_PATH = BASE_DIR / "base.jpg"
 VIDEO_PATH = BASE_DIR / "video.mov"
 
 
+def transform_panel(panel, flip_x=False, flip_y=False, rotate=0):
+    out = panel.copy()
+
+    if flip_x:
+        out = np.fliplr(out)
+    if flip_y:
+        out = np.flipud(out)
+
+    if rotate == 90:
+        out = np.rot90(out, k=1)
+    elif rotate == 180:
+        out = np.rot90(out, k=2)
+    elif rotate == 270:
+        out = np.rot90(out, k=3)
+
+    return out
+
+
+def map_128x128_to_4x64x64_chain(
+    frame_128,
+    order=("p1", "p2", "p3", "p4"),
+    transforms=None
+):
+    """
+    Mappa un frame 128x128 RGB in una strip 256x64 RGB per 4 pannelli 64x64 HUB75.
+
+    order = ordine fisico della chain
+    transforms = trasformazioni opzionali per singolo pannello
+
+    Esempio:
+        order=("p1", "p2", "p3", "p4")
+
+    transforms = {
+        "p1": {"flip_x": False, "flip_y": False, "rotate": 0},
+        "p2": {"flip_x": False, "flip_y": False, "rotate": 0},
+        "p3": {"flip_x": False, "flip_y": False, "rotate": 0},
+        "p4": {"flip_x": False, "flip_y": False, "rotate": 0},
+    }
+    """
+
+    if frame_128.shape[0] != 128 or frame_128.shape[1] != 128:
+        raise ValueError(f"Expected frame shape (128,128,3), got {frame_128.shape}")
+
+    panels = {
+        "p1": frame_128[0:64,   0:64].copy(),     # top-left
+        "p2": frame_128[0:64,  64:128].copy(),    # top-right
+        "p3": frame_128[64:128, 0:64].copy(),     # bottom-left
+        "p4": frame_128[64:128, 64:128].copy(),   # bottom-right
+    }
+
+    if transforms is None:
+        transforms = {}
+
+    mapped_panels = []
+    for key in order:
+        panel = panels[key]
+        t = transforms.get(key, {})
+        panel = transform_panel(
+            panel,
+            flip_x=t.get("flip_x", False),
+            flip_y=t.get("flip_y", False),
+            rotate=t.get("rotate", 0),
+        )
+        mapped_panels.append(panel)
+
+    out = np.concatenate(mapped_panels, axis=1)
+    return out
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -380,7 +448,11 @@ def main():
             # =========================
             # SEND TO MATRIX
             # =========================
-            pil_img = Image.fromarray(out_frame)
+            mapped_frame = map_128x128_to_4x64x64_chain(
+                out_frame,
+                order=("p1", "p2", "p3", "p4")
+            )
+            pil_img = Image.fromarray(mapped_frame)
             offscreen_canvas.SetImage(pil_img, 0, 0)
             offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
