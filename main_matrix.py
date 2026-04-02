@@ -17,6 +17,17 @@ IMAGE_PATH = BASE_DIR / "base.jpg"
 VIDEO_PATH = BASE_DIR / "video.mov"
 
 
+PANEL_ORDER = ("p3", "p1", "p2", "p4")
+
+PANEL_TRANSFORMS = {
+    "p1": {"flip_x": False, "flip_y": False, "rotate": 270},
+    "p2": {"flip_x": False, "flip_y": False, "rotate": 90},
+    "p3": {"flip_x": False, "flip_y": False, "rotate": 270},
+    "p4": {"flip_x": False, "flip_y": False, "rotate": 90},
+}
+
+
+
 def transform_panel(panel, flip_x=False, flip_y=False, rotate=0):
     out = panel.copy()
 
@@ -37,7 +48,7 @@ def transform_panel(panel, flip_x=False, flip_y=False, rotate=0):
 
 def map_128x128_to_4x64x64_chain(
     frame_128,
-    order=("p1", "p2", "p3", "p4"),
+    order=("p3", "p1", "p2", "p4"),
     transforms=None
 ):
     """
@@ -450,7 +461,8 @@ def main():
             # =========================
             mapped_frame = map_128x128_to_4x64x64_chain(
                 out_frame,
-                order=("p1", "p2", "p3", "p4")
+                order=PANEL_ORDER,
+                transforms=PANEL_TRANSFORMS,
             )
             pil_img = Image.fromarray(mapped_frame)
             offscreen_canvas.SetImage(pil_img, 0, 0)
