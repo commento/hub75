@@ -292,8 +292,6 @@ class VisualEngineClean:
         moving_mask = np.expand_dims(np.clip(self.motion_map * 2.5, 0.0, 1.0), axis=2)
         static_mask = 1.0 - moving_mask
 
-        # statiche: più memoria
-        # movimento: meno memoria
         persistence_mix = static_mask * amount + moving_mask * (amount * (1.0 - motion_protect))
 
         self.persistence_buffer = (
@@ -316,7 +314,6 @@ class VisualEngineClean:
         high = features["high"]
         transient = features.get("transient", 0.0)
 
-        # nuove feature dal main
         energy = features.get("energy", rms)
         chaos = features.get("chaos", transient)
         density = features.get("density", mid)
@@ -325,7 +322,6 @@ class VisualEngineClean:
         mode_flow = features.get("mode_flow", 0.0)
         mode_pulse = features.get("mode_pulse", 0.0)
         mode_chaos = features.get("mode_chaos", 0.0)
-        mode_freeze = features.get("mode_freeze", 0.0)
 
         img = self.base_img.copy()
 
@@ -350,7 +346,7 @@ class VisualEngineClean:
         # CHAOS LAYER
         # =====================================================
         tear_amount = chaos * 0.75 + transient * 0.25 + mode_chaos * 0.25
-        noise_amount = chaos * 0.28 + density * 0.12 + mode_freeze * 0.10
+        noise_amount = chaos * 0.28 + density * 0.12 + (1.0 - silence) * 0.04
 
         img = self.apply_scan_tearing(img, amount=tear_amount)
         img = self.apply_noise_field(img, amount=noise_amount)
@@ -362,9 +358,9 @@ class VisualEngineClean:
         img = self.apply_red_grade(img, strength=grade_strength)
 
         # =====================================================
-        # POSTERIZATION IN SILENCE / FREEZE
+        # POSTERIZATION IN SILENCE
         # =====================================================
-        if silence > 0.35 or mode_freeze > 0.5:
+        if silence > 0.35:
             levels = int(np.clip(8 - silence * 4.0, 3, 8))
             img = self.posterize(img, levels=levels)
 
@@ -380,8 +376,8 @@ class VisualEngineClean:
         persistence_amount = (
             0.10 +
             (1.0 - energy) * 0.35 +
-            silence * 0.45 +
-            mode_freeze * 0.20
+            silence * 0.38 +
+            mode_flow * 0.08
         )
         img = self.apply_persistence(img, amount=np.clip(persistence_amount, 0.0, 0.92))
 

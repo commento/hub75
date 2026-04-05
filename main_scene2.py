@@ -162,7 +162,7 @@ def get_next_video_frame(cap, width, height, random_buffer=None, speed=1.0):
     """
     speed:
         1.0 = normale
-        <1.0 = slow motion (hold parziale)
+        <1.0 = slow motion / hold parziale
         >1.0 = skip frame
     """
     if speed > 1.2:
@@ -221,12 +221,9 @@ def apply_scan_glitch(frame, intensity=0.0):
 MODE_FLOW = "FLOW"
 MODE_PULSE = "PULSE"
 MODE_CHAOS = "CHAOS"
-MODE_FREEZE_DRIFT = "FREEZE_DRIFT"
 
 
 def choose_mode(energy, transient, silence_amount, chaos):
-    if silence_amount > 0.75:
-        return MODE_FREEZE_DRIFT
     if chaos > 0.65 and transient > 0.22:
         return MODE_CHAOS
     if energy > 0.38:
@@ -264,7 +261,6 @@ def main():
     visual.edge_map = visual.compute_edge_map(visual.luma)
     visual.motion_map = visual.compute_motion_map(visual.luma)
 
-    frozen_output = initial_frame.copy()
     previous_frame = initial_frame.copy()
 
     # =====================================================
@@ -306,7 +302,7 @@ def main():
     JUMP_COOLDOWN = 0.65
     JUMP_HOLD = 0.14
 
-    # micro loop / frame hold
+    # micro hold
     frame_hold_until = 0.0
     held_frame = None
 
@@ -367,8 +363,6 @@ def main():
                 last_audio_time = now
 
             no_audio = (now - last_audio_time) > SILENCE_HOLD
-
-            # invece di freeze binario, costruiamo un "silence amount"
             target_silence = 1.0 if no_audio else 0.0
             silence_amount = smooth_value(silence_amount, target_silence, alpha=0.08)
 
@@ -381,7 +375,6 @@ def main():
                 smoothed["high"] * 0.10 +
                 smoothed["transient"] * 0.25
             )
-
             energy = smooth_value(energy, target_energy, alpha=0.10)
 
             target_chaos = clamp(
@@ -389,7 +382,6 @@ def main():
                 low_rise * 0.60 +
                 smoothed["high"] * 0.30
             )
-
             chaos = smooth_value(chaos, target_chaos, alpha=0.08)
 
             target_density = clamp(
@@ -397,7 +389,6 @@ def main():
                 smoothed["high"] * 0.35 +
                 energy * 0.30
             )
-
             density = smooth_value(density, target_density, alpha=0.08)
 
             # =========================
@@ -447,7 +438,7 @@ def main():
             frame_rgb = None
 
             if mode == MODE_FLOW:
-                speed = 0.9 + energy * 0.8
+                speed = 0.55 + energy * 0.9 + (1.0 - silence_amount) * 0.35
 
             elif mode == MODE_PULSE:
                 speed = 1.0 + smoothed["transient"] * 2.2
@@ -455,21 +446,16 @@ def main():
             elif mode == MODE_CHAOS:
                 speed = 1.2 + chaos * 2.0
 
-            elif mode == MODE_FREEZE_DRIFT:
-                speed = 0.55
-
             # -------------------------
             # occasional frame hold
             # -------------------------
             hold_chance = 0.0
             if mode == MODE_FLOW:
-                hold_chance = 0.01 + (1.0 - energy) * 0.04
+                hold_chance = 0.01 + (1.0 - energy) * 0.04 + silence_amount * 0.03
             elif mode == MODE_PULSE:
                 hold_chance = 0.03 + smoothed["transient"] * 0.08
             elif mode == MODE_CHAOS:
                 hold_chance = 0.05 + chaos * 0.10
-            elif mode == MODE_FREEZE_DRIFT:
-                hold_chance = 0.08
 
             if now < frame_hold_until and held_frame is not None:
                 frame_rgb = held_frame.copy()
@@ -505,13 +491,11 @@ def main():
             # -------------------------
             continuity_mix = 0.0
             if mode == MODE_FLOW:
-                continuity_mix = 0.35
+                continuity_mix = 0.28 + silence_amount * 0.18
             elif mode == MODE_PULSE:
                 continuity_mix = 0.18
             elif mode == MODE_CHAOS:
                 continuity_mix = 0.08
-            elif mode == MODE_FREEZE_DRIFT:
-                continuity_mix = 0.45
 
             frame_rgb = blend_frames(previous_frame, frame_rgb, 1.0 - continuity_mix)
 
@@ -546,7 +530,6 @@ def main():
                 "high": smoothed["high"],
                 "transient": smoothed["transient"],
 
-                # nuove feature "musicali / di stato"
                 "energy": energy,
                 "chaos": chaos,
                 "density": density,
@@ -554,17 +537,13 @@ def main():
                 "mode_flow": 1.0 if mode == MODE_FLOW else 0.0,
                 "mode_pulse": 1.0 if mode == MODE_PULSE else 0.0,
                 "mode_chaos": 1.0 if mode == MODE_CHAOS else 0.0,
-                "mode_freeze": 1.0 if mode == MODE_FREEZE_DRIFT else 0.0,
             }
 
             out_frame = visual.update(visual_features)
-            frozen_output = out_frame.copy()
 
-            # =====================================================
-            # IF SILENCE: non freeze totale, ma "slow ghost"
-            # =====================================================
+            # rarefazione nel silenzio, non freeze
             if silence_amount > 0.82:
-                out_frame = blend_frames(frozen_output, previous_frame, 0.08)
+                out_frame = blend_frames(out_frame, previous_frame, 0.18)
 
             # =====================================================
             # SEND TO MATRIX
@@ -583,7 +562,7 @@ def main():
             # DEBUG
             # =====================================================
             print(
-                f"MODE:{mode:<13} "
+                f"MODE:{mode:<8} "
                 f"RMS:{smoothed['rms']:.2f} "
                 f"LOW:{smoothed['low']:.2f} "
                 f"MID:{smoothed['mid']:.2f} "
