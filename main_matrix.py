@@ -16,7 +16,6 @@ BASE_DIR = Path(__file__).resolve().parent
 IMAGE_PATH = BASE_DIR / "base.jpg"
 VIDEO_PATH = BASE_DIR / "video.mov"
 
-
 PANEL_ORDER = ("p3", "p1", "p2", "p4")
 
 PANEL_TRANSFORMS = {
@@ -27,7 +26,9 @@ PANEL_TRANSFORMS = {
 }
 
 
-
+# =========================================================
+# PANEL MAPPING
+# =========================================================
 def transform_panel(panel, flip_x=False, flip_y=False, rotate=0):
     out = panel.copy()
 
@@ -51,31 +52,14 @@ def map_128x128_to_4x64x64_chain(
     order=("p3", "p1", "p2", "p4"),
     transforms=None
 ):
-    """
-    Mappa un frame 128x128 RGB in una strip 256x64 RGB per 4 pannelli 64x64 HUB75.
-
-    order = ordine fisico della chain
-    transforms = trasformazioni opzionali per singolo pannello
-
-    Esempio:
-        order=("p1", "p2", "p3", "p4")
-
-    transforms = {
-        "p1": {"flip_x": False, "flip_y": False, "rotate": 0},
-        "p2": {"flip_x": False, "flip_y": False, "rotate": 0},
-        "p3": {"flip_x": False, "flip_y": False, "rotate": 0},
-        "p4": {"flip_x": False, "flip_y": False, "rotate": 0},
-    }
-    """
-
     if frame_128.shape[0] != 128 or frame_128.shape[1] != 128:
         raise ValueError(f"Expected frame shape (128,128,3), got {frame_128.shape}")
 
     panels = {
-        "p1": frame_128[0:64,   0:64].copy(),     # top-left
-        "p2": frame_128[0:64,  64:128].copy(),    # top-right
-        "p3": frame_128[64:128, 0:64].copy(),     # bottom-left
-        "p4": frame_128[64:128, 64:128].copy(),   # bottom-right
+        "p1": frame_128[0:64,   0:64].copy(),
+        "p2": frame_128[0:64,  64:128].copy(),
+        "p3": frame_128[64:128, 0:64].copy(),
+        "p4": frame_128[64:128, 64:128].copy(),
     }
 
     if transforms is None:
@@ -95,6 +79,7 @@ def map_128x128_to_4x64x64_chain(
 
     out = np.concatenate(mapped_panels, axis=1)
     return out
+
 
 # =========================================================
 # HELPERS
@@ -144,7 +129,7 @@ def preload_random_frames(video_path, width, height, num_frames=80):
 
     buffer_frames = []
     attempts = 0
-    max_attempts = num_frames * 5
+    max_attempts = num_frames * 6
 
     while len(buffer_frames) < num_frames and attempts < max_attempts:
         attempts += 1
@@ -208,6 +193,10 @@ def clamp(x, a=0.0, b=1.0):
     return max(a, min(b, x))
 
 
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -249,22 +238,22 @@ def main():
     # =====================================================
     # AUDIO BEHAVIOUR TUNING
     # =====================================================
-    AUDIO_GAIN = 2.6          # alza la sensibilità globale
-    LOW_GAIN = 3.0
-    MID_GAIN = 2.2
-    HIGH_GAIN = 2.0
-    TRANSIENT_GAIN = 3.5
+    AUDIO_GAIN = 2.2
+    LOW_GAIN = 1.35
+    MID_GAIN = 1.15
+    HIGH_GAIN = 1.10
+    TRANSIENT_GAIN = 1.45
+    KICK_GAIN = 1.65
 
-    # smoothing feature
     smoothed = {
         "rms": 0.0,
         "low": 0.0,
         "mid": 0.0,
         "high": 0.0,
         "transient": 0.0,
+        "kick": 0.0,
     }
 
-    # transient memory
     prev_low = 0.0
     prev_rms = 0.0
 
@@ -274,18 +263,17 @@ def main():
     last_jump_time = 0.0
     jump_hold_until = 0.0
 
-    JUMP_COOLDOWN = 0.75      # MOLTO più lento di prima
-    JUMP_HOLD = 0.20          # breve hold per evitare rimbalzi
-    MIN_JUMP_INTERVAL = 0.55
+    JUMP_COOLDOWN = 0.72
+    JUMP_HOLD = 0.18
 
-    # accumulatore evento
     jump_accumulator = 0.0
+    energy_memory = 0.0
 
     # =====================================================
-    # SILENCE FREEZE
+    # SILENCE / STILLNESS
     # =====================================================
-    SILENCE_THRESHOLD = 0.020
-    SILENCE_HOLD = 0.45
+    SILENCE_THRESHOLD = 0.030
+    SILENCE_HOLD = 0.80
     last_audio_time = time.time()
 
     # =====================================================
@@ -314,32 +302,44 @@ def main():
                 "mid": clamp(raw["mid"] * MID_GAIN),
                 "high": clamp(raw["high"] * HIGH_GAIN),
                 "transient": clamp(raw.get("transient", 0.0) * TRANSIENT_GAIN),
+                "kick": clamp(raw.get("kick", 0.0) * KICK_GAIN),
             }
 
             # =========================
             # SMOOTHING
             # =========================
             smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.18)
-            smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.16)
+            smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.20)
             smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.16)
             smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.14)
-            smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.22)
+            smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.26)
+            smoothed["kick"] = smooth_value(smoothed["kick"], boosted["kick"], alpha=0.24)
 
             # =========================
-            # BETTER KICK / ONSET SCORE
+            # ONSET / ACTIVITY
             # =========================
             low_rise = max(0.0, smoothed["low"] - prev_low)
             rms_rise = max(0.0, smoothed["rms"] - prev_rms)
 
             onset_score = (
-                smoothed["low"] * 0.55 +
-                smoothed["transient"] * 0.95 +
-                low_rise * 1.20 +
-                rms_rise * 0.55
+                smoothed["kick"] * 1.15 +
+                smoothed["transient"] * 0.55 +
+                low_rise * 0.45 +
+                rms_rise * 0.20
             )
 
             prev_low = smoothed["low"]
             prev_rms = smoothed["rms"]
+
+            # activity memory (quanto "vive" il brano)
+            activity = (
+                smoothed["rms"] * 0.35 +
+                smoothed["low"] * 0.20 +
+                smoothed["mid"] * 0.15 +
+                smoothed["high"] * 0.10 +
+                smoothed["kick"] * 0.20
+            )
+            energy_memory = smooth_value(energy_memory, activity, alpha=0.04)
 
             # =========================
             # SILENCE DETECTION
@@ -350,67 +350,57 @@ def main():
             no_audio = (now - last_audio_time) > SILENCE_HOLD
 
             # =========================
-            # FREEZE ON SILENCE
+            # NO HARD FREEZE
+            # mantieni ultimo frame ma continua loop
             # =========================
             if no_audio:
-                pil_img = Image.fromarray(frozen_output)
-                offscreen_canvas.SetImage(pil_img, 0, 0)
-                offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
-
-                print(
-                    f"RMS:{smoothed['rms']:.2f} "
-                    f"LOW:{smoothed['low']:.2f} "
-                    f"MID:{smoothed['mid']:.2f} "
-                    f"HIGH:{smoothed['high']:.2f} "
-                    f"TR:{smoothed['transient']:.2f} "
-                    f"ON:{onset_score:.2f} "
-                    f"[FREEZE]    ",
-                    end="\r"
-                )
-
-                elapsed = time.time() - loop_start
-                sleep_time = frame_duration - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                continue
+                frame_rgb = visual.base_img.copy()
+            else:
+                frame_rgb = None
 
             # =========================
             # JUMP ACCUMULATION
-            # invece di trigger diretto brutale
             # =========================
             jump_drive = (
-                onset_score * 0.75 +
-                smoothed["low"] * 0.20
+                onset_score * 0.65 +
+                smoothed["kick"] * 0.55
             )
 
-            # accumula se c'è attività
-            if jump_drive > 0.20:
-                jump_accumulator += jump_drive * 0.06
+            if jump_drive > 0.18:
+                jump_accumulator += jump_drive * 0.055
             else:
-                jump_accumulator *= 0.92
+                jump_accumulator *= 0.93
 
             jump_accumulator = clamp(jump_accumulator, 0.0, 1.0)
 
             # =========================
-            # JUMP DECISION (molto meno schizofrenico)
+            # MUSICAL CHAOS
+            # più il brano è vivo, più si apre
+            # =========================
+            chaos = clamp((energy_memory - 0.16) * 2.0, 0.0, 1.0)
+
+            # =========================
+            # JUMP DECISION
             # =========================
             jump_condition = (
-                smoothed["low"] > 0.16 and
-                smoothed["transient"] > 0.08 and
-                onset_score > 0.26 and
-                jump_accumulator > 0.34 and
+                smoothed["kick"] > 0.22 and
+                smoothed["transient"] > 0.05 and
+                onset_score > 0.28 and
+                jump_accumulator > 0.28 and
                 now > jump_hold_until and
                 (now - last_jump_time) > JUMP_COOLDOWN
             )
 
-            # probabilità: non ogni colpo diventa jump
             jump_probability = clamp(
-                (onset_score - 0.24) * 2.0 + jump_accumulator * 0.7,
+                (smoothed["kick"] - 0.18) * 1.9 +
+                (onset_score - 0.24) * 1.1 +
+                jump_accumulator * 0.55 +
+                chaos * 0.25,
                 0.0,
-                0.92
+                0.90
             )
 
-            do_jump = jump_condition and (random.random() < jump_probability)
+            do_jump = (not no_audio) and jump_condition and (random.random() < jump_probability)
 
             # =========================
             # VIDEO SOURCE SELECTION
@@ -419,9 +409,9 @@ def main():
                 frame_rgb = get_random_preloaded_frame(random_buffer)
                 last_jump_time = now
                 jump_hold_until = now + JUMP_HOLD
-                jump_accumulator *= 0.35  # scarica energia dopo il salto
+                jump_accumulator *= 0.38
 
-            else:
+            elif frame_rgb is None:
                 frame_rgb = get_next_video_frame(
                     cap,
                     WIDTH,
@@ -442,7 +432,6 @@ def main():
 
             # =========================
             # FEATURES FOR VISUAL ENGINE
-            # passiamo quelle smoothate
             # =========================
             visual_features = {
                 "rms": smoothed["rms"],
@@ -450,10 +439,12 @@ def main():
                 "mid": smoothed["mid"],
                 "high": smoothed["high"],
                 "transient": smoothed["transient"],
+                "kick": smoothed["kick"],
+                "chaos": chaos,
+                "activity": energy_memory,
             }
 
             out_frame = visual.update(visual_features)
-
             frozen_output = out_frame.copy()
 
             # =========================
@@ -464,6 +455,7 @@ def main():
                 order=PANEL_ORDER,
                 transforms=PANEL_TRANSFORMS,
             )
+
             pil_img = Image.fromarray(mapped_frame)
             offscreen_canvas.SetImage(pil_img, 0, 0)
             offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
@@ -477,9 +469,12 @@ def main():
                 f"MID:{smoothed['mid']:.2f} "
                 f"HIGH:{smoothed['high']:.2f} "
                 f"TR:{smoothed['transient']:.2f} "
+                f"K:{smoothed['kick']:.2f} "
                 f"ON:{onset_score:.2f} "
                 f"ACC:{jump_accumulator:.2f} "
-                f"JP:{jump_probability:.2f}    ",
+                f"CH:{chaos:.2f} "
+                f"JP:{jump_probability:.2f} "
+                f"{'[JUMP]' if do_jump else '[RUN ]'}    ",
                 end="\r"
             )
 
