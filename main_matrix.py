@@ -252,7 +252,7 @@ def main():
     AUDIO_GAIN = 2.6          # alza la sensibilità globale
     LOW_GAIN = 3.0
     MID_GAIN = 2.2
-    HIGH_GAIN = 3.0
+    HIGH_GAIN = 2.0
     TRANSIENT_GAIN = 3.5
 
     # smoothing feature
@@ -310,8 +310,8 @@ def main():
             # =========================
             boosted = {
                 "rms": clamp(raw["rms"] * AUDIO_GAIN),
-                "low": clamp(raw["low"]),
-                "mid": clamp(raw["mid"]),
+                "low": clamp(raw["low"] * LOW_GAIN),
+                "mid": clamp(raw["mid"] * MID_GAIN),
                 "high": clamp(raw["high"] * HIGH_GAIN),
                 "transient": clamp(raw.get("transient", 0.0) * TRANSIENT_GAIN),
             }
@@ -378,18 +378,18 @@ def main():
             # JUMP ACCUMULATION
             # invece di trigger diretto brutale
             # =========================
-            # jump_drive = (
-            #     onset_score * 0.75 +
-            #     smoothed["low"] * 0.20
-            # )
+            jump_drive = (
+                onset_score * 0.75 +
+                smoothed["low"] * 0.20
+            )
 
-            # # accumula se c'è attività
-            # if jump_drive > 0.20:
-            #     jump_accumulator += jump_drive * 0.06
-            # else:
-            #     jump_accumulator *= 0.92
+            # accumula se c'è attività
+            if jump_drive > 0.20:
+                jump_accumulator += jump_drive * 0.06
+            else:
+                jump_accumulator *= 0.92
 
-            # jump_accumulator = clamp(jump_accumulator, 0.0, 1.0)
+            jump_accumulator = clamp(jump_accumulator, 0.0, 1.0)
 
             # =========================
             # JUMP DECISION (molto meno schizofrenico)
@@ -404,13 +404,13 @@ def main():
             )
 
             # probabilità: non ogni colpo diventa jump
-            # jump_probability = clamp(
-            #     (onset_score - 0.24) * 2.0 + jump_accumulator * 0.7,
-            #     0.0,
-            #     0.92
-            # )
+            jump_probability = clamp(
+                (onset_score - 0.24) * 2.0 + jump_accumulator * 0.7,
+                0.0,
+                0.92
+            )
 
-            do_jump = jump_condition
+            do_jump = jump_condition and (random.random() < jump_probability)
 
             # =========================
             # VIDEO SOURCE SELECTION
