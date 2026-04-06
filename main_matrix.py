@@ -319,11 +319,11 @@ def main():
             # =========================
             # SMOOTHING
             # =========================
-            smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.18)
-            smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.16)
-            smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.16)
-            smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.14)
-            smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.22)
+            # smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.18)
+            # smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.16)
+            # smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.16)
+            # smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.14)
+            # smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.22)
 
             # =========================
             # BETTER KICK / ONSET SCORE
@@ -332,19 +332,19 @@ def main():
             rms_rise = max(0.0, smoothed["rms"] - prev_rms)
 
             onset_score = (
-                smoothed["low"] * 0.55 +
-                smoothed["transient"] * 0.95 +
+                boosted["low"] * 0.55 +
+                boosted["transient"] * 0.95 +
                 low_rise * 1.20 +
                 rms_rise * 0.55
             )
 
-            prev_low = smoothed["low"]
-            prev_rms = smoothed["rms"]
+            prev_low = boosted["low"]
+            prev_rms = boosted["rms"]
 
             # =========================
             # SILENCE DETECTION
             # =========================
-            if smoothed["rms"] >= SILENCE_THRESHOLD:
+            if boosted["rms"] >= SILENCE_THRESHOLD:
                 last_audio_time = now
 
             no_audio = (now - last_audio_time) > SILENCE_HOLD
@@ -358,11 +358,11 @@ def main():
                 offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
                 print(
-                    f"RMS:{smoothed['rms']:.2f} "
-                    f"LOW:{smoothed['low']:.2f} "
-                    f"MID:{smoothed['mid']:.2f} "
-                    f"HIGH:{smoothed['high']:.2f} "
-                    f"TR:{smoothed['transient']:.2f} "
+                    f"RMS:{boosted['rms']:.2f} "
+                    f"LOW:{boosted['low']:.2f} "
+                    f"MID:{boosted['mid']:.2f} "
+                    f"HIGH:{boosted['high']:.2f} "
+                    f"TR:{boosted['transient']:.2f} "
                     f"ON:{onset_score:.2f} "
                     f"[FREEZE]    ",
                     end="\r"
@@ -395,8 +395,8 @@ def main():
             # JUMP DECISION (molto meno schizofrenico)
             # =========================
             jump_condition = (
-                smoothed["low"] > 0.16 and
-                smoothed["transient"] > 0.08 and
+                boosted["low"] > 0.16 and
+                boosted["transient"] > 0.08 and
                 onset_score > 0.26 and
                 jump_accumulator > 0.34 and
                 now > jump_hold_until and
@@ -445,11 +445,11 @@ def main():
             # passiamo quelle smoothate
             # =========================
             visual_features = {
-                "rms": smoothed["rms"],
-                "low": smoothed["low"],
-                "mid": smoothed["mid"],
-                "high": smoothed["high"],
-                "transient": smoothed["transient"],
+                "rms": boosted["rms"],
+                "low": boosted["low"],
+                "mid": boosted["mid"],
+                "high": boosted["high"],
+                "transient": boosted["transient"],
             }
 
             out_frame = visual.update(visual_features)
@@ -472,14 +472,13 @@ def main():
             # DEBUG
             # =========================
             print(
-                f"RMS:{smoothed['rms']:.2f} "
-                f"LOW:{smoothed['low']:.2f} "
-                f"MID:{smoothed['mid']:.2f} "
-                f"HIGH:{smoothed['high']:.2f} "
-                f"TR:{smoothed['transient']:.2f} "
+                f"RMS:{boosted['rms']:.2f} "
+                f"LOW:{boosted['low']:.2f} "
+                f"MID:{boosted['mid']:.2f} "
+                f"HIGH:{boosted['high']:.2f} "
+                f"TR:{boosted['transient']:.2f} "
                 f"ON:{onset_score:.2f} "
-                f"ACC:{jump_accumulator:.2f} "
-                f"JP:{jump_probability:.2f}    ",
+                f"ACC:{jump_accumulator:.2f} ",
                 end="\r"
             )
 
