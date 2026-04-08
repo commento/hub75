@@ -353,8 +353,10 @@ def main():
     # SILENCE FREEZE
     # =====================================================
     SILENCE_THRESHOLD = 0.020
-    SILENCE_HOLD = 0.45
+    SILENCE_HOLD = 0.90
     last_audio_time = time.time()
+    startup_time = time.time()
+    STARTUP_WARMUP = 2.4
 
     # =====================================================
     # FPS
@@ -440,15 +442,16 @@ def main():
                 smoothed["transient"] * 0.95,
             )
 
-            if audio_activity >= SILENCE_THRESHOLD:
+            if smoothed["raw_rms"] >= 0.030 or audio_activity >= SILENCE_THRESHOLD:
                 last_audio_time = now
 
-            no_audio = (now - last_audio_time) > SILENCE_HOLD
+            startup_warm = (now - startup_time) < STARTUP_WARMUP
+            no_audio = ((now - last_audio_time) > SILENCE_HOLD) and not startup_warm
 
             # =========================
             # FREEZE ON SILENCE
             # =========================
-            if no_audio:
+            if no_audio and audio_activity < 0.018 and smoothed["raw_rms"] < 0.024:
                 current_panel_order = PANEL_ORDER
                 current_panel_transforms = PANEL_TRANSFORMS
                 chaos_until = 0.0
@@ -500,6 +503,7 @@ def main():
             # JUMP DECISION (molto meno schizofrenico)
             # =========================
             jump_condition = (
+                not startup_warm and
                 smoothed["low"] > 0.16 and
                 smoothed["transient"] > 0.08 and
                 onset_score > 0.26 and
@@ -517,7 +521,12 @@ def main():
 
             do_jump = jump_condition and (random.random() < jump_probability)
 
-            if distortion_drive > CHAOS_THRESHOLD and now > chaos_until and (now - last_chaos_time) > CHAOS_COOLDOWN:
+            if (
+                not startup_warm and
+                distortion_drive > CHAOS_THRESHOLD and
+                now > chaos_until and
+                (now - last_chaos_time) > CHAOS_COOLDOWN
+            ):
                 choices = [idx for idx in range(len(CHAOS_PANEL_MODES)) if idx != current_chaos_index]
                 current_chaos_index = random.choice(choices)
                 selected_mode = CHAOS_PANEL_MODES[current_chaos_index]
@@ -567,6 +576,7 @@ def main():
                 "mid": smoothed["mid"],
                 "high": smoothed["high"],
                 "transient": smoothed["transient"],
+                "activity": smoothed["activity"],
             }
 
             out_frame = visual.update(visual_features)

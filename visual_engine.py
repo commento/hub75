@@ -163,6 +163,50 @@ class VisualEngineClean:
 
         return out
 
+    def edge_contour_warp(self, img, amount):
+        if amount < 0.02:
+            return img.copy()
+
+        edge_mask = self.get_edge_focus_mask()
+        if np.max(edge_mask) < 1e-4:
+            return img.copy()
+
+        h, w = edge_mask.shape
+        y, x = np.indices((h, w), dtype=np.float32)
+
+        phase_x = y * 0.115 + self.time * 3.2
+        phase_y = x * 0.095 - self.time * 2.7
+
+        disp_x = np.sin(phase_x) * (0.8 + amount * 3.8)
+        disp_y = np.cos(phase_y) * (0.6 + amount * 2.6)
+
+        warp = np.power(edge_mask, 1.35) * np.clip(amount * 1.8, 0.0, 1.0)
+        sample_x = np.clip(x + disp_x * warp, 0, w - 1).astype(np.int32)
+        sample_y = np.clip(y + disp_y * warp, 0, h - 1).astype(np.int32)
+
+        warped = img[sample_y, sample_x]
+        mix = np.expand_dims(np.clip(warp, 0.0, 0.85), axis=2)
+        out = img.astype(np.float32) * (1.0 - mix) + warped.astype(np.float32) * mix
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def static_field_drift(self, img, amount):
+        if amount < 0.02:
+            return img.copy()
+
+        static_mask = self.get_static_field_mask()
+        edge_mask = self.get_edge_focus_mask()
+        mask = np.clip(static_mask * (1.0 - edge_mask * 0.9), 0.0, 1.0)
+        if np.max(mask) < 1e-4:
+            return img.copy()
+
+        dx = int(np.sin(self.time * 1.05) * (1 + amount * 5))
+        dy = int(np.cos(self.time * 0.87) * (1 + amount * 4))
+        shifted = np.roll(img, shift=(dy, dx), axis=(0, 1))
+
+        mix = np.expand_dims(np.clip(mask * (0.18 + amount * 0.28), 0.0, 0.42), axis=2)
+        out = img.astype(np.float32) * (1.0 - mix) + shifted.astype(np.float32) * mix
+        return np.clip(out, 0, 255).astype(np.uint8)
+
     def edge_noise_overlay(self, img, amount):
         if amount < 0.015:
             return img.copy()
@@ -187,24 +231,6 @@ class VisualEngineClean:
         out[:, :, 1] -= signed * 0.35
         out[:, :, 2] += signed * 0.85
 
-        return np.clip(out, 0, 255).astype(np.uint8)
-
-    def edge_burst_displace(self, img, amount):
-        if amount < 0.02:
-            return img.copy()
-
-        edge_mask = self.get_edge_focus_mask()
-        burst = np.clip(np.power(edge_mask, 0.7) * (amount * 1.4), 0.0, 1.0)
-        if np.max(burst) < 1e-4:
-            return img.copy()
-
-        x_shift = int(np.sin(self.time * 7.7) * (2 + amount * 14))
-        y_shift = int(np.cos(self.time * 5.9) * (1 + amount * 10))
-        shifted = np.roll(img, shift=(y_shift, x_shift), axis=(0, 1))
-
-        out = img.astype(np.float32)
-        burst = np.expand_dims(burst, axis=2)
-        out = out * (1.0 - burst) + shifted.astype(np.float32) * burst
         return np.clip(out, 0, 255).astype(np.uint8)
 
     def edge_glow(self, img, amount):
@@ -255,11 +281,11 @@ class VisualEngineClean:
     # =========================================
     # RITORNO ALLA QUIETE IN SILENZIO
     # =========================================
-    def preserve_stillness(self, img, rms):
-        if rms > 0.05:
+    def preserve_stillness(self, img, activity):
+        if activity > 0.06:
             return img.copy()
 
-        alpha = np.clip((0.05 - rms) / 0.05, 0.0, 1.0) * 0.75
+        alpha = np.clip((0.06 - activity) / 0.06, 0.0, 1.0) * 0.75
         out = img.astype(np.float32) * (1.0 - alpha) + self.base_img.astype(np.float32) * alpha
         return np.clip(out, 0, 255).astype(np.uint8)
 
@@ -274,6 +300,7 @@ class VisualEngineClean:
         mid = features["mid"]
         high = features["high"]
         transient = features.get("transient", 0.0)
+        activity = features.get("activity", rms)
 
         bass_mid_peak = np.clip(
             max(low, mid) * 0.75 +
@@ -299,8 +326,11 @@ class VisualEngineClean:
             amount=high * 110 + transient * 160 + peak_drive * 0.06,
         )
 
-        # EDGE: burst più raro e più pulito, guidato davvero dai picchi
-        img = self.edge_burst_displace(img, amount=peak_drive * 0.18 + low * 0.06)
+        # EDGE: deformazione morbida dei contorni, meno random e più leggibile
+        img = self.edge_contour_warp(img, amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05)
+
+        # STATIC FIELD: drift lento sulle masse statiche, ma non sui bordi
+        img = self.static_field_drift(img, amount=low * 0.10 + mid * 0.08 + peak_drive * 0.06)
 
         # EDGE: noise localizzato e meno costante
         img = self.edge_noise_overlay(
@@ -320,6 +350,6 @@ class VisualEngineClean:
         img = self.preserve_moving_areas(img)
 
         # se silenzio, torna leggibile
-        img = self.preserve_stillness(img, rms)
+        img = self.preserve_stillness(img, activity)
 
         return img
