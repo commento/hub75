@@ -21,6 +21,7 @@ class StereoFeatureExtractor:
 
         self.prev_rms = 0.0
         self.noise_floor = 0.0
+        self.frame_count = 0
         self.band_floor = {
             "low": 0.0,
             "mid": 0.0,
@@ -59,6 +60,8 @@ class StereoFeatureExtractor:
         return float(np.clip(np.power(normalized, 0.85), 0.0, 1.0))
 
     def extract(self, stereo_frame):
+        self.frame_count += 1
+
         left = stereo_frame[:, 0]
         right = stereo_frame[:, 1]
 
@@ -68,8 +71,9 @@ class StereoFeatureExtractor:
         rms_raw = float(np.sqrt(np.mean(mono ** 2) + 1e-9))
 
         self.noise_floor = self.noise_floor * 0.999 + rms_raw * 0.001
-        rms_active = max(0.0, rms_raw - self.noise_floor * 1.04)
-        raw_rms = np.clip(np.power(rms_raw * 22.0, 0.72), 0.0, 1.0)
+        raw_rms_active = max(0.0, rms_raw - self.noise_floor * 1.01 - 0.0006)
+        rms_active = max(0.0, rms_raw - self.noise_floor * 1.04 - 0.0008)
+        raw_rms = np.clip(np.power(raw_rms_active * 42.0, 0.72), 0.0, 1.0)
         rms = np.clip(np.power(rms_active * 28.0, 0.72), 0.0, 1.0)
 
         window = np.hanning(len(mono))
@@ -103,16 +107,6 @@ class StereoFeatureExtractor:
         transient = np.clip(transient, 0.0, 1.0)
         self.prev_rms = rms
 
-        activity = np.clip(
-            raw_rms * 0.42 +
-            rms * 0.28 +
-            low * 0.16 +
-            mid * 0.14 +
-            transient * 0.26,
-            0.0,
-            1.0,
-        )
-
         gate = np.clip((raw_rms - 0.010) * 8.0, 0.0, 1.0)
         low *= gate
         mid *= gate
@@ -120,6 +114,34 @@ class StereoFeatureExtractor:
         width *= gate
         balance *= gate
         transient *= gate
+
+        activity = np.clip(
+            raw_rms * 0.50 +
+            rms * 0.22 +
+            low * 0.16 +
+            mid * 0.12 +
+            transient * 0.18,
+            0.0,
+            1.0,
+        )
+
+        if raw_rms < 0.008 and rms < 0.008 and transient < 0.01:
+            low = 0.0
+            mid = 0.0
+            high = 0.0
+            transient = 0.0
+            activity = 0.0
+            width = 0.0
+            balance = 0.0
+
+        startup_blend = np.clip((self.frame_count - 8) / 18.0, 0.0, 1.0)
+        raw_rms *= startup_blend
+        rms *= startup_blend
+        low *= startup_blend
+        mid *= startup_blend
+        high *= startup_blend
+        transient *= startup_blend
+        activity *= startup_blend
 
         self._smooth("rms", rms, SMOOTH_FAST)
         self._smooth("raw_rms", raw_rms, 0.32)
