@@ -312,10 +312,12 @@ def main():
     # smoothing feature
     smoothed = {
         "rms": 0.0,
+        "raw_rms": 0.0,
         "low": 0.0,
         "mid": 0.0,
         "high": 0.0,
         "transient": 0.0,
+        "activity": 0.0,
     }
 
     # transient memory
@@ -376,20 +378,24 @@ def main():
             # =========================
             boosted = {
                 "rms": clamp(raw["rms"] * AUDIO_GAIN),
+                "raw_rms": clamp(raw.get("raw_rms", raw["rms"]) * 1.10),
                 "low": clamp(raw["low"] * LOW_GAIN),
                 "mid": clamp(raw["mid"] * MID_GAIN),
                 "high": clamp(raw["high"] * HIGH_GAIN),
                 "transient": clamp(raw.get("transient", 0.0) * TRANSIENT_GAIN),
+                "activity": clamp(raw.get("activity", raw["rms"]) * 1.10),
             }
 
             # =========================
             # SMOOTHING
             # =========================
             smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.24)
+            smoothed["raw_rms"] = smooth_value(smoothed["raw_rms"], boosted["raw_rms"], alpha=0.22)
             smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.22)
             smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.20)
             smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.16)
             smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.34)
+            smoothed["activity"] = smooth_value(smoothed["activity"], boosted["activity"], alpha=0.24)
 
             # =========================
             # BETTER KICK / ONSET SCORE
@@ -425,7 +431,16 @@ def main():
             # =========================
             # SILENCE DETECTION
             # =========================
-            if smoothed["rms"] >= SILENCE_THRESHOLD:
+            audio_activity = max(
+                smoothed["raw_rms"],
+                smoothed["activity"],
+                smoothed["rms"] * 0.92,
+                smoothed["low"] * 0.78,
+                smoothed["mid"] * 0.72,
+                smoothed["transient"] * 0.95,
+            )
+
+            if audio_activity >= SILENCE_THRESHOLD:
                 last_audio_time = now
 
             no_audio = (now - last_audio_time) > SILENCE_HOLD
@@ -447,10 +462,12 @@ def main():
 
                 print(
                     f"RMS:{smoothed['rms']:.2f} "
+                    f"RR:{smoothed['raw_rms']:.2f} "
                     f"LOW:{smoothed['low']:.2f} "
                     f"MID:{smoothed['mid']:.2f} "
                     f"HIGH:{smoothed['high']:.2f} "
                     f"TR:{smoothed['transient']:.2f} "
+                    f"ACT:{audio_activity:.2f} "
                     f"ON:{onset_score:.2f} "
                     f"[FREEZE]    ",
                     end="\r"
@@ -572,10 +589,12 @@ def main():
             # =========================
             print(
                 f"RMS:{smoothed['rms']:.2f} "
+                f"RR:{smoothed['raw_rms']:.2f} "
                 f"LOW:{smoothed['low']:.2f} "
                 f"MID:{smoothed['mid']:.2f} "
                 f"HIGH:{smoothed['high']:.2f} "
                 f"TR:{smoothed['transient']:.2f} "
+                f"ACT:{audio_activity:.2f} "
                 f"ON:{onset_score:.2f} "
                 f"SAT:{saturation_drive:.2f} "
                 f"DST:{distortion_drive:.2f} "

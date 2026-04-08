@@ -1,6 +1,5 @@
-# visual_engine.py
-
 import numpy as np
+import cv2
 from PIL import Image
 
 class VisualEngineClean:
@@ -61,14 +60,18 @@ class VisualEngineClean:
         return out
 
     def compute_edge_map(self, luma):
-        gx = np.zeros_like(luma)
-        gy = np.zeros_like(luma)
-        gx[:,1:-1] = luma[:,2:] - luma[:,:-2]
-        gy[1:-1,:] = luma[2:,:] - luma[:-2,:]
-        mag = np.sqrt(gx*gx + gy*gy)
-        mag = self.blur3(mag)
-        mag = mag / (np.max(mag) + 1e-6)
-        return np.clip(mag, 0.0, 1.0)
+        blurred = cv2.GaussianBlur(luma.astype(np.float32), (3, 3), 0)
+        gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+        mag = cv2.magnitude(gx, gy)
+        mag = cv2.GaussianBlur(mag, (3, 3), 0)
+
+        lo = float(np.percentile(mag, 70))
+        hi = float(np.percentile(mag, 99))
+        mag = (mag - lo) / max(hi - lo, 1e-6)
+        mag = np.clip(mag, 0.0, 1.0)
+        mag = np.power(mag, 1.15)
+        return mag
 
     def compute_motion_map(self, current_luma):
         diff = np.abs(current_luma - self.prev_luma)

@@ -9,12 +9,14 @@ class StereoFeatureExtractor:
 
         self.state = {
             "rms": 0.0,
+            "raw_rms": 0.0,
             "low": 0.0,
             "mid": 0.0,
             "high": 0.0,
             "balance": 0.0,
             "width": 0.0,
             "transient": 0.0,
+            "activity": 0.0,
         }
 
         self.prev_rms = 0.0
@@ -39,7 +41,7 @@ class StereoFeatureExtractor:
     def _smooth(self, key, target, amount):
         self.state[key] = (1 - amount) * self.state[key] + amount * target
 
-    def _normalize_band(self, key, value, floor_speed=0.03, peak_attack=0.22, peak_release=0.006):
+    def _normalize_band(self, key, value, floor_speed=0.012, peak_attack=0.28, peak_release=0.003):
         floor = self.band_floor[key]
         floor = floor * (1.0 - floor_speed) + value * floor_speed
         self.band_floor[key] = floor
@@ -65,9 +67,10 @@ class StereoFeatureExtractor:
 
         rms_raw = float(np.sqrt(np.mean(mono ** 2) + 1e-9))
 
-        self.noise_floor = self.noise_floor * 0.995 + rms_raw * 0.005
-        rms_active = max(0.0, rms_raw - self.noise_floor * 1.10)
-        rms = np.clip(np.power(rms_active * 18.0, 0.80), 0.0, 1.0)
+        self.noise_floor = self.noise_floor * 0.999 + rms_raw * 0.001
+        rms_active = max(0.0, rms_raw - self.noise_floor * 1.04)
+        raw_rms = np.clip(np.power(rms_raw * 22.0, 0.72), 0.0, 1.0)
+        rms = np.clip(np.power(rms_active * 28.0, 0.72), 0.0, 1.0)
 
         window = np.hanning(len(mono))
         mono_spec = np.abs(np.fft.rfft(mono * window))
@@ -100,7 +103,17 @@ class StereoFeatureExtractor:
         transient = np.clip(transient, 0.0, 1.0)
         self.prev_rms = rms
 
-        gate = np.clip((rms - 0.018) * 7.5, 0.0, 1.0)
+        activity = np.clip(
+            raw_rms * 0.42 +
+            rms * 0.28 +
+            low * 0.16 +
+            mid * 0.14 +
+            transient * 0.26,
+            0.0,
+            1.0,
+        )
+
+        gate = np.clip((raw_rms - 0.010) * 8.0, 0.0, 1.0)
         low *= gate
         mid *= gate
         high *= gate
@@ -109,12 +122,14 @@ class StereoFeatureExtractor:
         transient *= gate
 
         self._smooth("rms", rms, SMOOTH_FAST)
+        self._smooth("raw_rms", raw_rms, 0.32)
         self._smooth("low", low, SMOOTH_FAST)
         self._smooth("mid", mid, SMOOTH_FAST)
         self._smooth("high", high, SMOOTH_FAST)
         self._smooth("balance", balance, SMOOTH_SLOW)
         self._smooth("width", width, SMOOTH_SLOW)
         self._smooth("transient", transient, 0.50)
+        self._smooth("activity", activity, 0.28)
 
         for key in self.state:
             if key != "balance":
