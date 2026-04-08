@@ -223,8 +223,8 @@ class VisualEngineClean:
         wave = np.sin(phase_a) + np.cos(phase_b)
         wave = wave / 2.0
 
-        gate = np.clip(edge_mask * (0.4 + amount * 2.6), 0.0, 1.0)
-        signed = wave * gate * (18.0 + amount * 90.0)
+        gate = np.clip(edge_mask * (0.8 + amount * 22.0), 0.0, 1.0)
+        signed = wave * gate * (35.0 + amount * 320.0)
 
         out = img.astype(np.float32)
         out[:, :, 0] += signed * 1.25
@@ -262,10 +262,10 @@ class VisualEngineClean:
 
         phase_1 = x * 0.21 + y * 0.07 + self.time * 9.5
         phase_2 = x * -0.13 + y * 0.19 - self.time * 7.3
-        disp_x = (np.sin(phase_1) + np.cos(phase_2)) * (1.5 + amount * 8.0)
-        disp_y = (np.cos(phase_1 * 0.7) - np.sin(phase_2 * 1.1)) * (0.8 + amount * 5.5)
+        disp_x = (np.sin(phase_1) + np.cos(phase_2)) * (2.5 + amount * 18.0)
+        disp_y = (np.cos(phase_1 * 0.7) - np.sin(phase_2 * 1.1)) * (1.4 + amount * 13.0)
 
-        mix = np.power(mask, 1.1) * np.clip(amount * 1.6, 0.0, 1.0)
+        mix = np.power(mask, 0.92) * np.clip(amount * 3.2, 0.0, 1.0)
         sample_x = np.clip(x + disp_x * mix, 0, w - 1).astype(np.int32)
         sample_y = np.clip(y + disp_y * mix, 0, h - 1).astype(np.int32)
 
@@ -275,10 +275,10 @@ class VisualEngineClean:
         edge_mix = np.expand_dims(np.clip(mix, 0.0, 0.95), axis=2)
         out = base * (1.0 - edge_mix) + warped * edge_mix
 
-        band = np.expand_dims(np.clip(edge_mask * (0.25 + amount * 0.8), 0.0, 1.0), axis=2)
-        out[:, :, 0] += band[:, :, 0] * (25.0 + amount * 110.0)
-        out[:, :, 1] -= band[:, :, 0] * (8.0 + amount * 35.0)
-        out[:, :, 2] += band[:, :, 0] * (18.0 + amount * 80.0)
+        band = np.expand_dims(np.clip(edge_mask * (0.5 + amount * 2.4), 0.0, 1.0), axis=2)
+        out[:, :, 0] += band[:, :, 0] * (60.0 + amount * 260.0)
+        out[:, :, 1] -= band[:, :, 0] * (18.0 + amount * 120.0)
+        out[:, :, 2] += band[:, :, 0] * (35.0 + amount * 200.0)
 
         return np.clip(out, 0, 255).astype(np.uint8)
 
@@ -298,8 +298,8 @@ class VisualEngineClean:
         phase_a = x * 0.41 + y * 0.23 + self.time * 13.0
         phase_b = x * -0.29 + y * 0.37 - self.time * 10.5
 
-        disp_x = (np.sin(phase_a) + np.sin(phase_b * 0.7)) * (0.7 + amount * 4.8)
-        disp_y = (np.cos(phase_b) - np.cos(phase_a * 0.8)) * (0.5 + amount * 3.6)
+        disp_x = (np.sin(phase_a) + np.sin(phase_b * 0.7)) * (1.2 + amount * 10.0)
+        disp_y = (np.cos(phase_b) - np.cos(phase_a * 0.8)) * (0.9 + amount * 8.0)
 
         sample_x = np.clip(x + disp_x * mask, 0, w - 1).astype(np.int32)
         sample_y = np.clip(y + disp_y * mask, 0, h - 1).astype(np.int32)
@@ -308,7 +308,7 @@ class VisualEngineClean:
 
         lowres = cv2.resize(
             img,
-            (max(1, self.width // 2), max(1, self.height // 2)),
+            (max(1, self.width // 3), max(1, self.height // 3)),
             interpolation=cv2.INTER_AREA,
         )
         fine_pixels = cv2.resize(lowres, (self.width, self.height), interpolation=cv2.INTER_LINEAR).astype(np.float32)
@@ -318,8 +318,8 @@ class VisualEngineClean:
         luma_grad = luma_grad / (np.max(luma_grad) + 1e-6)
         luma_grad = np.expand_dims(luma_grad, axis=2)
 
-        blend_a = np.expand_dims(np.clip(mask * (0.22 + amount * 0.48), 0.0, 0.92), axis=2)
-        blend_b = np.expand_dims(np.clip(mask * luma_grad[:, :, 0] * (0.14 + amount * 0.32), 0.0, 0.65), axis=2)
+        blend_a = np.expand_dims(np.clip(mask * (0.45 + amount * 1.25), 0.0, 0.98), axis=2)
+        blend_b = np.expand_dims(np.clip(mask * luma_grad[:, :, 0] * (0.28 + amount * 0.85), 0.0, 0.92), axis=2)
 
         out = img.astype(np.float32)
         out = out * (1.0 - blend_a) + moshed * blend_a
@@ -333,12 +333,12 @@ class VisualEngineClean:
         edge_mask = self.get_edge_focus_mask()
         static_mask = self.get_static_field_mask()
         total = np.clip(edge_mask * 0.8 + static_mask * 0.65, 0.0, 1.0)
-        veil = np.expand_dims(np.clip(total * (amount * 0.85), 0.0, 0.92), axis=2)
+        veil = np.expand_dims(np.clip(total * (amount * 1.35), 0.0, 0.98), axis=2)
 
         out = img.astype(np.float32)
         out = out * (1.0 - veil)
-        out[:, :, 0] += veil[:, :, 0] * (15.0 + amount * 70.0)
-        out[:, :, 2] += veil[:, :, 0] * (4.0 + amount * 35.0)
+        out[:, :, 0] += veil[:, :, 0] * (28.0 + amount * 150.0)
+        out[:, :, 2] += veil[:, :, 0] * (8.0 + amount * 70.0)
         return np.clip(out, 0, 255).astype(np.uint8)
 
     # =========================================
@@ -413,8 +413,8 @@ class VisualEngineClean:
             0.0,
             1.0,
         )
-        overload_drive = np.clip((overload - 0.72) / 0.28, 0.0, 1.0)
-        overload_drive = np.power(overload_drive, 1.45)
+        overload_drive = np.clip((overload - 0.48) / 0.18, 0.0, 1.0)
+        overload_drive = np.power(overload_drive, 0.72)
 
         img = self.base_img.copy()
         
@@ -433,31 +433,31 @@ class VisualEngineClean:
         # EDGE: deformazione morbida dei contorni, meno random e più leggibile
         img = self.edge_contour_warp(
             img,
-            amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05 + overload_drive * 0.26,
+            amount=peak_drive * 0.25 + low * 0.16 + mid * 0.14 + overload_drive * 1.8,
         )
 
         # STATIC FIELD: drift lento sulle masse statiche, ma non sui bordi
         img = self.static_field_drift(
             img,
-            amount=low * 0.10 + mid * 0.08 + peak_drive * 0.06 + overload_drive * 0.10,
+            amount=low * 0.22 + mid * 0.18 + peak_drive * 0.10 + overload_drive * 0.85,
         )
 
         # EDGE: noise localizzato e meno costante
         img = self.edge_noise_overlay(
             img,
-            amount=high * 0.05 + transient * 0.10 + rms * 0.08 + peak_drive * 0.18 + overload_drive * 0.30,
+            amount=high * 0.08 + transient * 0.14 + rms * 0.20 + peak_drive * 0.35 + overload_drive * 2.4,
         )
 
         # EDGE: leggero glow sui contorni, così il soggetto resta leggibile
-        img = self.edge_glow(img, amount=mid * 0.12 + high * 0.10 + transient * 0.08 + peak_drive * 0.10)
+        img = self.edge_glow(img, amount=mid * 0.18 + high * 0.14 + transient * 0.12 + peak_drive * 0.16 + overload_drive * 0.65)
 
         # MASSA STATICA: push cromatico
-        img = self.static_field_color_push(img, amount=high * 0.04 + mid * 0.05 + peak_drive * 0.04)
+        img = self.static_field_color_push(img, amount=high * 0.06 + mid * 0.10 + peak_drive * 0.08 + overload_drive * 0.55)
 
         # OVERDRIVE: quando rms/low/mid saturano l'immagine deve collassare davvero
-        img = self.overload_edge_shred(img, amount=overload_drive * 0.9)
-        img = self.overload_micro_mosh(img, amount=overload_drive)
-        img = self.overload_blackout(img, amount=overload_drive * 0.45)
+        img = self.overload_edge_shred(img, amount=overload_drive * 1.8)
+        img = self.overload_micro_mosh(img, amount=overload_drive * 2.4)
+        img = self.overload_blackout(img, amount=overload_drive * 0.9)
 
         img = self.apply_red_grade(img, strength=1.0)
 
