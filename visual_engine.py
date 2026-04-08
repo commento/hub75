@@ -282,34 +282,48 @@ class VisualEngineClean:
 
         return np.clip(out, 0, 255).astype(np.uint8)
 
-    def overload_static_crush(self, img, amount):
+    def overload_micro_mosh(self, img, amount):
         if amount < 0.05:
             return img.copy()
 
         static_mask = self.get_static_field_mask()
         edge_mask = self.get_edge_focus_mask()
-        mask = np.clip(static_mask * (1.0 - edge_mask * 0.75), 0.0, 1.0)
+        mask = np.clip(static_mask * 0.75 + edge_mask * 0.55, 0.0, 1.0)
         if np.max(mask) < 1e-4:
             return img.copy()
 
-        coarse = max(2, int(2 + amount * 7))
-        small = cv2.resize(
+        h, w = mask.shape
+        y, x = np.indices((h, w), dtype=np.float32)
+
+        phase_a = x * 0.41 + y * 0.23 + self.time * 13.0
+        phase_b = x * -0.29 + y * 0.37 - self.time * 10.5
+
+        disp_x = (np.sin(phase_a) + np.sin(phase_b * 0.7)) * (0.7 + amount * 4.8)
+        disp_y = (np.cos(phase_b) - np.cos(phase_a * 0.8)) * (0.5 + amount * 3.6)
+
+        sample_x = np.clip(x + disp_x * mask, 0, w - 1).astype(np.int32)
+        sample_y = np.clip(y + disp_y * mask, 0, h - 1).astype(np.int32)
+
+        moshed = img[sample_y, sample_x].astype(np.float32)
+
+        lowres = cv2.resize(
             img,
-            (max(1, self.width // coarse), max(1, self.height // coarse)),
+            (max(1, self.width // 2), max(1, self.height // 2)),
             interpolation=cv2.INTER_AREA,
         )
-        crushed = cv2.resize(small, (self.width, self.height), interpolation=cv2.INTER_NEAREST).astype(np.float32)
+        fine_pixels = cv2.resize(lowres, (self.width, self.height), interpolation=cv2.INTER_LINEAR).astype(np.float32)
 
-        levels = max(3, int(8 - amount * 4))
-        step = max(8, 256 // levels)
-        crushed = np.floor(crushed / step) * step
+        luma = self.compute_luma(img)
+        luma_grad = np.abs(luma - self.blur3(luma))
+        luma_grad = luma_grad / (np.max(luma_grad) + 1e-6)
+        luma_grad = np.expand_dims(luma_grad, axis=2)
 
-        smear_x = int(np.sin(self.time * 2.4) * (2 + amount * 10))
-        smear_y = int(np.cos(self.time * 1.8) * (1 + amount * 7))
-        crushed = np.roll(crushed, shift=(smear_y, smear_x), axis=(0, 1))
+        blend_a = np.expand_dims(np.clip(mask * (0.22 + amount * 0.48), 0.0, 0.92), axis=2)
+        blend_b = np.expand_dims(np.clip(mask * luma_grad[:, :, 0] * (0.14 + amount * 0.32), 0.0, 0.65), axis=2)
 
-        mix = np.expand_dims(np.clip(mask * (0.25 + amount * 0.55), 0.0, 0.95), axis=2)
-        out = img.astype(np.float32) * (1.0 - mix) + crushed * mix
+        out = img.astype(np.float32)
+        out = out * (1.0 - blend_a) + moshed * blend_a
+        out = out * (1.0 - blend_b) + fine_pixels * blend_b
         return np.clip(out, 0, 255).astype(np.uint8)
 
     def overload_blackout(self, img, amount):
@@ -419,7 +433,7 @@ class VisualEngineClean:
         # EDGE: deformazione morbida dei contorni, meno random e più leggibile
         img = self.edge_contour_warp(
             img,
-            amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05 + overload_drive * 0.22,
+            amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05 + overload_drive * 0.26,
         )
 
         # STATIC FIELD: drift lento sulle masse statiche, ma non sui bordi
@@ -441,9 +455,9 @@ class VisualEngineClean:
         img = self.static_field_color_push(img, amount=high * 0.04 + mid * 0.05 + peak_drive * 0.04)
 
         # OVERDRIVE: quando rms/low/mid saturano l'immagine deve collassare davvero
-        img = self.overload_edge_shred(img, amount=overload_drive)
-        img = self.overload_static_crush(img, amount=overload_drive)
-        img = self.overload_blackout(img, amount=overload_drive)
+        img = self.overload_edge_shred(img, amount=overload_drive * 0.9)
+        img = self.overload_micro_mosh(img, amount=overload_drive)
+        img = self.overload_blackout(img, amount=overload_drive * 0.45)
 
         img = self.apply_red_grade(img, strength=1.0)
 
