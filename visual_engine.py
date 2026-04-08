@@ -280,36 +280,36 @@ class VisualEngineClean:
             0.0,
             1.0,
         )
-        peak_drive = np.power(bass_mid_peak, 1.55)
+        peak_drive = np.power(bass_mid_peak, 1.85)
 
         img = self.base_img.copy()
         
         # MASSA STATICA: displacement vero
         img = self.static_field_displacement(
             img,
-            amount=low * 1.0 + mid * 0.95 + peak_drive * 0.55,
+            amount=low * 0.38 + mid * 0.32 + peak_drive * 0.14,
         )
 
         # MASSA STATICA: separazione colore
         img = self.static_field_rgb_split(
             img,
-            amount=high * 700 + transient * 900 + peak_drive * 0.65,
+            amount=high * 110 + transient * 160 + peak_drive * 0.06,
         )
 
-        # EDGE: nei picchi bassi/medi i contorni devono strapparsi molto di più
-        img = self.edge_burst_displace(img, amount=peak_drive * 0.95 + low * 0.35)
+        # EDGE: burst più raro e più pulito, guidato davvero dai picchi
+        img = self.edge_burst_displace(img, amount=peak_drive * 0.18 + low * 0.06)
 
-        # EDGE: noise localizzato sui bordi per rendere il segnale più leggibile
+        # EDGE: noise localizzato e meno costante
         img = self.edge_noise_overlay(
             img,
-            amount=high * 0.35 + transient * 0.65 + rms * 0.45 + peak_drive * 0.95,
+            amount=high * 0.05 + transient * 0.10 + rms * 0.08 + peak_drive * 0.18,
         )
 
         # EDGE: leggero glow sui contorni, così il soggetto resta leggibile
-        img = self.edge_glow(img, amount=mid * 0.32 + high * 0.28 + transient * 0.22 + peak_drive * 0.35)
+        img = self.edge_glow(img, amount=mid * 0.12 + high * 0.10 + transient * 0.08 + peak_drive * 0.10)
 
         # MASSA STATICA: push cromatico
-        img = self.static_field_color_push(img, amount=high * 0.08 + mid * 0.12 + peak_drive * 0.14)
+        img = self.static_field_color_push(img, amount=high * 0.04 + mid * 0.05 + peak_drive * 0.04)
 
         img = self.apply_red_grade(img, strength=1.0)
 

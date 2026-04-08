@@ -19,6 +19,16 @@ class StereoFeatureExtractor:
 
         self.prev_rms = 0.0
         self.noise_floor = 0.0
+        self.band_floor = {
+            "low": 0.0,
+            "mid": 0.0,
+            "high": 0.0,
+        }
+        self.band_peak = {
+            "low": 1e-4,
+            "mid": 1e-4,
+            "high": 1e-4,
+        }
 
     def _band_energy(self, spectrum, low_hz, high_hz):
         idx = np.where((self.freqs >= low_hz) & (self.freqs < high_hz))[0]
@@ -29,6 +39,23 @@ class StereoFeatureExtractor:
     def _smooth(self, key, target, amount):
         self.state[key] = (1 - amount) * self.state[key] + amount * target
 
+    def _normalize_band(self, key, value, floor_speed=0.03, peak_attack=0.22, peak_release=0.006):
+        floor = self.band_floor[key]
+        floor = floor * (1.0 - floor_speed) + value * floor_speed
+        self.band_floor[key] = floor
+
+        active = max(0.0, value - floor * 1.08)
+
+        peak = self.band_peak[key]
+        if active > peak:
+            peak = peak * (1.0 - peak_attack) + active * peak_attack
+        else:
+            peak = peak * (1.0 - peak_release) + active * peak_release
+        self.band_peak[key] = max(peak, 1e-4)
+
+        normalized = active / (self.band_peak[key] + 1e-6)
+        return float(np.clip(np.power(normalized, 0.85), 0.0, 1.0))
+
     def extract(self, stereo_frame):
         left = stereo_frame[:, 0]
         right = stereo_frame[:, 1]
@@ -38,10 +65,9 @@ class StereoFeatureExtractor:
 
         rms_raw = float(np.sqrt(np.mean(mono ** 2) + 1e-9))
 
-        # adaptive noise floor
-        #self.noise_floor = 0.995 * self.noise_floor + 0.005 * rms_raw
-        rms = rms_raw #max(0.0, rms_raw - self.noise_floor * 1.15)
-        rms = np.clip(rms * 12.0, 0.0, 1.0)
+        self.noise_floor = self.noise_floor * 0.995 + rms_raw * 0.005
+        rms_active = max(0.0, rms_raw - self.noise_floor * 1.10)
+        rms = np.clip(np.power(rms_active * 18.0, 0.80), 0.0, 1.0)
 
         window = np.hanning(len(mono))
         mono_spec = np.abs(np.fft.rfft(mono * window))
@@ -50,9 +76,13 @@ class StereoFeatureExtractor:
         mono_spec = np.log1p(mono_spec)
         side_spec = np.log1p(side_spec)
 
-        low = self._band_energy(mono_spec, 55, 180)
-        mid = self._band_energy(mono_spec, 180, 2200)
-        high = self._band_energy(mono_spec, 2200, 10000)
+        low_raw = self._band_energy(mono_spec, 35, 180)
+        mid_raw = self._band_energy(mono_spec, 180, 2400)
+        high_raw = self._band_energy(mono_spec, 2400, 12000)
+
+        low = self._normalize_band("low", low_raw)
+        mid = self._normalize_band("mid", mid_raw)
+        high = self._normalize_band("high", high_raw)
 
         width = float(np.mean(side_spec) / (np.mean(mono_spec) + 1e-6))
         width = np.clip(width * 1.6, 0.0, 1.0)
@@ -61,16 +91,16 @@ class StereoFeatureExtractor:
         right_rms = float(np.sqrt(np.mean(right ** 2) + 1e-9))
         balance = np.clip((right_rms - left_rms) * 7.0, -1.0, 1.0)
 
-        transient = max(0.0, rms - self.prev_rms) * 2.8
+        spectral_flux = (
+            max(0.0, low - self.state["low"]) * 0.8 +
+            max(0.0, mid - self.state["mid"]) * 1.0 +
+            max(0.0, high - self.state["high"]) * 0.55
+        )
+        transient = max(0.0, rms - self.prev_rms) * 1.9 + spectral_flux * 1.35
         transient = np.clip(transient, 0.0, 1.0)
         self.prev_rms = rms
 
-        norm = max(low, mid, high, 1e-6)
-        low /= norm
-        mid /= norm
-        high /= norm
-
-        gate = np.clip((rms - 0.03) * 8.0, 0.0, 1.0)
+        gate = np.clip((rms - 0.018) * 7.5, 0.0, 1.0)
         low *= gate
         mid *= gate
         high *= gate

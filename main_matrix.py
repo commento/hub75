@@ -303,11 +303,11 @@ def main():
     # =====================================================
     # AUDIO BEHAVIOUR TUNING
     # =====================================================
-    AUDIO_GAIN = 2.6          # alza la sensibilità globale
-    LOW_GAIN = 3.0
-    MID_GAIN = 2.2
-    HIGH_GAIN = 2.0
-    TRANSIENT_GAIN = 3.5
+    AUDIO_GAIN = 1.35
+    LOW_GAIN = 1.45
+    MID_GAIN = 1.30
+    HIGH_GAIN = 1.15
+    TRANSIENT_GAIN = 1.55
 
     # smoothing feature
     smoothed = {
@@ -385,11 +385,11 @@ def main():
             # =========================
             # SMOOTHING
             # =========================
-            smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.18)
-            smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.16)
-            smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.16)
-            smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.14)
-            smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.22)
+            smoothed["rms"] = smooth_value(smoothed["rms"], boosted["rms"], alpha=0.24)
+            smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.22)
+            smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.20)
+            smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.16)
+            smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.34)
 
             # =========================
             # BETTER KICK / ONSET SCORE
@@ -405,18 +405,18 @@ def main():
             )
 
             saturation_drive = clamp(
-                smoothed["rms"] * 0.34 +
-                smoothed["low"] * 0.28 +
-                smoothed["mid"] * 0.24 +
-                smoothed["transient"] * 0.36
+                smoothed["rms"] * 0.38 +
+                smoothed["low"] * 0.32 +
+                smoothed["mid"] * 0.22 +
+                smoothed["transient"] * 0.42
             )
 
             distortion_drive = clamp(
-                saturation_drive * 0.72 +
-                max(0.0, smoothed["rms"] - 0.62) * 0.95 +
-                max(0.0, smoothed["low"] - 0.58) * 0.80 +
-                max(0.0, smoothed["mid"] - 0.55) * 0.70 +
-                max(0.0, smoothed["transient"] - 0.38) * 0.85
+                saturation_drive * 0.42 +
+                max(0.0, smoothed["rms"] - 0.78) * 1.20 +
+                max(0.0, smoothed["low"] - 0.74) * 1.05 +
+                max(0.0, smoothed["mid"] - 0.70) * 0.88 +
+                max(0.0, smoothed["transient"] - 0.52) * 0.92
             )
 
             prev_low = smoothed["low"]
