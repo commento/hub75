@@ -247,6 +247,86 @@ class VisualEngineClean:
 
         return np.clip(out, 0, 255).astype(np.uint8)
 
+    def overload_edge_shred(self, img, amount):
+        if amount < 0.04:
+            return img.copy()
+
+        edge_mask = self.get_edge_focus_mask()
+        static_mask = self.get_static_field_mask()
+        mask = np.clip(edge_mask * 1.2 + static_mask * 0.35, 0.0, 1.0)
+        if np.max(mask) < 1e-4:
+            return img.copy()
+
+        h, w = edge_mask.shape
+        y, x = np.indices((h, w), dtype=np.float32)
+
+        phase_1 = x * 0.21 + y * 0.07 + self.time * 9.5
+        phase_2 = x * -0.13 + y * 0.19 - self.time * 7.3
+        disp_x = (np.sin(phase_1) + np.cos(phase_2)) * (1.5 + amount * 8.0)
+        disp_y = (np.cos(phase_1 * 0.7) - np.sin(phase_2 * 1.1)) * (0.8 + amount * 5.5)
+
+        mix = np.power(mask, 1.1) * np.clip(amount * 1.6, 0.0, 1.0)
+        sample_x = np.clip(x + disp_x * mix, 0, w - 1).astype(np.int32)
+        sample_y = np.clip(y + disp_y * mix, 0, h - 1).astype(np.int32)
+
+        warped = img[sample_y, sample_x].astype(np.float32)
+        base = img.astype(np.float32)
+
+        edge_mix = np.expand_dims(np.clip(mix, 0.0, 0.95), axis=2)
+        out = base * (1.0 - edge_mix) + warped * edge_mix
+
+        band = np.expand_dims(np.clip(edge_mask * (0.25 + amount * 0.8), 0.0, 1.0), axis=2)
+        out[:, :, 0] += band[:, :, 0] * (25.0 + amount * 110.0)
+        out[:, :, 1] -= band[:, :, 0] * (8.0 + amount * 35.0)
+        out[:, :, 2] += band[:, :, 0] * (18.0 + amount * 80.0)
+
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def overload_static_crush(self, img, amount):
+        if amount < 0.05:
+            return img.copy()
+
+        static_mask = self.get_static_field_mask()
+        edge_mask = self.get_edge_focus_mask()
+        mask = np.clip(static_mask * (1.0 - edge_mask * 0.75), 0.0, 1.0)
+        if np.max(mask) < 1e-4:
+            return img.copy()
+
+        coarse = max(2, int(2 + amount * 7))
+        small = cv2.resize(
+            img,
+            (max(1, self.width // coarse), max(1, self.height // coarse)),
+            interpolation=cv2.INTER_AREA,
+        )
+        crushed = cv2.resize(small, (self.width, self.height), interpolation=cv2.INTER_NEAREST).astype(np.float32)
+
+        levels = max(3, int(8 - amount * 4))
+        step = max(8, 256 // levels)
+        crushed = np.floor(crushed / step) * step
+
+        smear_x = int(np.sin(self.time * 2.4) * (2 + amount * 10))
+        smear_y = int(np.cos(self.time * 1.8) * (1 + amount * 7))
+        crushed = np.roll(crushed, shift=(smear_y, smear_x), axis=(0, 1))
+
+        mix = np.expand_dims(np.clip(mask * (0.25 + amount * 0.55), 0.0, 0.95), axis=2)
+        out = img.astype(np.float32) * (1.0 - mix) + crushed * mix
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def overload_blackout(self, img, amount):
+        if amount < 0.08:
+            return img.copy()
+
+        edge_mask = self.get_edge_focus_mask()
+        static_mask = self.get_static_field_mask()
+        total = np.clip(edge_mask * 0.8 + static_mask * 0.65, 0.0, 1.0)
+        veil = np.expand_dims(np.clip(total * (amount * 0.85), 0.0, 0.92), axis=2)
+
+        out = img.astype(np.float32)
+        out = out * (1.0 - veil)
+        out[:, :, 0] += veil[:, :, 0] * (15.0 + amount * 70.0)
+        out[:, :, 2] += veil[:, :, 0] * (4.0 + amount * 35.0)
+        return np.clip(out, 0, 255).astype(np.uint8)
+
     # =========================================
     # COLOR SHIFT SULLE SUPERFICI STATICHE
     # =========================================
@@ -311,6 +391,16 @@ class VisualEngineClean:
             1.0,
         )
         peak_drive = np.power(bass_mid_peak, 1.85)
+        overload = np.clip(
+            rms * 0.36 +
+            low * 0.34 +
+            mid * 0.24 +
+            transient * 0.18,
+            0.0,
+            1.0,
+        )
+        overload_drive = np.clip((overload - 0.72) / 0.28, 0.0, 1.0)
+        overload_drive = np.power(overload_drive, 1.45)
 
         img = self.base_img.copy()
         
@@ -327,15 +417,21 @@ class VisualEngineClean:
         )
 
         # EDGE: deformazione morbida dei contorni, meno random e più leggibile
-        img = self.edge_contour_warp(img, amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05)
+        img = self.edge_contour_warp(
+            img,
+            amount=peak_drive * 0.18 + low * 0.08 + mid * 0.05 + overload_drive * 0.22,
+        )
 
         # STATIC FIELD: drift lento sulle masse statiche, ma non sui bordi
-        img = self.static_field_drift(img, amount=low * 0.10 + mid * 0.08 + peak_drive * 0.06)
+        img = self.static_field_drift(
+            img,
+            amount=low * 0.10 + mid * 0.08 + peak_drive * 0.06 + overload_drive * 0.10,
+        )
 
         # EDGE: noise localizzato e meno costante
         img = self.edge_noise_overlay(
             img,
-            amount=high * 0.05 + transient * 0.10 + rms * 0.08 + peak_drive * 0.18,
+            amount=high * 0.05 + transient * 0.10 + rms * 0.08 + peak_drive * 0.18 + overload_drive * 0.30,
         )
 
         # EDGE: leggero glow sui contorni, così il soggetto resta leggibile
@@ -343,6 +439,11 @@ class VisualEngineClean:
 
         # MASSA STATICA: push cromatico
         img = self.static_field_color_push(img, amount=high * 0.04 + mid * 0.05 + peak_drive * 0.04)
+
+        # OVERDRIVE: quando rms/low/mid saturano l'immagine deve collassare davvero
+        img = self.overload_edge_shred(img, amount=overload_drive)
+        img = self.overload_static_crush(img, amount=overload_drive)
+        img = self.overload_blackout(img, amount=overload_drive)
 
         img = self.apply_red_grade(img, strength=1.0)
 
