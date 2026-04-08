@@ -208,6 +208,60 @@ def clamp(x, a=0.0, b=1.0):
     return max(a, min(b, x))
 
 
+def make_panel_transforms(rotation_offsets=None, flip_x_panels=(), flip_y_panels=()):
+    rotation_offsets = rotation_offsets or {}
+    out = {}
+
+    for key, base in PANEL_TRANSFORMS.items():
+        out[key] = {
+            "flip_x": base.get("flip_x", False),
+            "flip_y": base.get("flip_y", False),
+            "rotate": base.get("rotate", 0),
+        }
+
+    for key, offset in rotation_offsets.items():
+        out[key]["rotate"] = (out[key]["rotate"] + offset) % 360
+
+    for key in flip_x_panels:
+        out[key]["flip_x"] = not out[key]["flip_x"]
+
+    for key in flip_y_panels:
+        out[key]["flip_y"] = not out[key]["flip_y"]
+
+    return out
+
+
+CHAOS_PANEL_MODES = (
+    {
+        "order": ("p2", "p4", "p3", "p1"),
+        "transforms": make_panel_transforms({"p1": 180, "p4": 180}),
+    },
+    {
+        "order": ("p4", "p2", "p1", "p3"),
+        "transforms": make_panel_transforms({"p2": 180, "p3": 180}, flip_x_panels=("p1", "p4")),
+    },
+    {
+        "order": ("p1", "p3", "p4", "p2"),
+        "transforms": make_panel_transforms({"p1": 90, "p2": 270, "p3": 90, "p4": 270}),
+    },
+    {
+        "order": ("p3", "p4", "p1", "p2"),
+        "transforms": make_panel_transforms({"p1": 180, "p2": 180, "p3": 180, "p4": 180}, flip_y_panels=("p2", "p3")),
+    },
+)
+
+
+def render_to_matrix(frame_128, canvas, matrix, order=None, transforms=None):
+    mapped_frame = map_128x128_to_4x64x64_chain(
+        frame_128,
+        order=order or PANEL_ORDER,
+        transforms=transforms or PANEL_TRANSFORMS,
+    )
+    pil_img = Image.fromarray(mapped_frame)
+    canvas.SetImage(pil_img, 0, 0)
+    return matrix.SwapOnVSync(canvas)
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -281,6 +335,18 @@ def main():
     # accumulatore evento
     jump_accumulator = 0.0
 
+    # pannelli: chaos mode solo in saturazione estrema
+    current_panel_order = PANEL_ORDER
+    current_panel_transforms = PANEL_TRANSFORMS
+    chaos_until = 0.0
+    last_chaos_time = 0.0
+    current_chaos_index = -1
+
+    CHAOS_THRESHOLD = 0.82
+    CHAOS_COOLDOWN = 0.85
+    CHAOS_MIN_HOLD = 0.18
+    CHAOS_MAX_HOLD = 0.42
+
     # =====================================================
     # SILENCE FREEZE
     # =====================================================
@@ -338,6 +404,21 @@ def main():
                 rms_rise * 0.55
             )
 
+            saturation_drive = clamp(
+                smoothed["rms"] * 0.34 +
+                smoothed["low"] * 0.28 +
+                smoothed["mid"] * 0.24 +
+                smoothed["transient"] * 0.36
+            )
+
+            distortion_drive = clamp(
+                saturation_drive * 0.72 +
+                max(0.0, smoothed["rms"] - 0.62) * 0.95 +
+                max(0.0, smoothed["low"] - 0.58) * 0.80 +
+                max(0.0, smoothed["mid"] - 0.55) * 0.70 +
+                max(0.0, smoothed["transient"] - 0.38) * 0.85
+            )
+
             prev_low = smoothed["low"]
             prev_rms = smoothed["rms"]
 
@@ -353,9 +434,16 @@ def main():
             # FREEZE ON SILENCE
             # =========================
             if no_audio:
-                pil_img = Image.fromarray(frozen_output)
-                offscreen_canvas.SetImage(pil_img, 0, 0)
-                offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+                current_panel_order = PANEL_ORDER
+                current_panel_transforms = PANEL_TRANSFORMS
+                chaos_until = 0.0
+                offscreen_canvas = render_to_matrix(
+                    frozen_output,
+                    offscreen_canvas,
+                    matrix,
+                    order=current_panel_order,
+                    transforms=current_panel_transforms,
+                )
 
                 print(
                     f"RMS:{smoothed['rms']:.2f} "
@@ -412,6 +500,18 @@ def main():
 
             do_jump = jump_condition and (random.random() < jump_probability)
 
+            if distortion_drive > CHAOS_THRESHOLD and now > chaos_until and (now - last_chaos_time) > CHAOS_COOLDOWN:
+                choices = [idx for idx in range(len(CHAOS_PANEL_MODES)) if idx != current_chaos_index]
+                current_chaos_index = random.choice(choices)
+                selected_mode = CHAOS_PANEL_MODES[current_chaos_index]
+                current_panel_order = selected_mode["order"]
+                current_panel_transforms = selected_mode["transforms"]
+                chaos_until = now + random.uniform(CHAOS_MIN_HOLD, CHAOS_MAX_HOLD)
+                last_chaos_time = now
+            elif now > chaos_until:
+                current_panel_order = PANEL_ORDER
+                current_panel_transforms = PANEL_TRANSFORMS
+
             # =========================
             # VIDEO SOURCE SELECTION
             # =========================
@@ -459,14 +559,13 @@ def main():
             # =========================
             # SEND TO MATRIX
             # =========================
-            mapped_frame = map_128x128_to_4x64x64_chain(
+            offscreen_canvas = render_to_matrix(
                 out_frame,
-                order=PANEL_ORDER,
-                transforms=PANEL_TRANSFORMS,
+                offscreen_canvas,
+                matrix,
+                order=current_panel_order,
+                transforms=current_panel_transforms,
             )
-            pil_img = Image.fromarray(mapped_frame)
-            offscreen_canvas.SetImage(pil_img, 0, 0)
-            offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
             # =========================
             # DEBUG
@@ -478,6 +577,8 @@ def main():
                 f"HIGH:{smoothed['high']:.2f} "
                 f"TR:{smoothed['transient']:.2f} "
                 f"ON:{onset_score:.2f} "
+                f"SAT:{saturation_drive:.2f} "
+                f"DST:{distortion_drive:.2f} "
                 f"ACC:{jump_accumulator:.2f} "
                 f"JP:{jump_probability:.2f}    ",
                 end="\r"

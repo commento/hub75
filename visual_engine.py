@@ -14,6 +14,12 @@ class VisualEngineClean:
         self.motion_map = np.zeros_like(self.luma)
         self.time = 0.0
 
+    def get_edge_focus_mask(self):
+        edges = np.clip(self.edge_map, 0.0, 1.0)
+        edges = self.blur3(edges)
+        edges = np.power(edges, 0.85)
+        return np.clip(edges, 0.0, 1.0)
+
     def apply_red_grade(self, img, strength=1.0):
         out = img.astype(np.float32)
 
@@ -101,7 +107,9 @@ class VisualEngineClean:
         if amount < 0.02:
             return img.copy()
 
-        mask = self.get_static_field_mask()
+        static_mask = self.get_static_field_mask()
+        edge_mask = self.get_edge_focus_mask()
+        mask = np.clip(static_mask * 0.7 + edge_mask * 0.9, 0.0, 1.0)
         out = img.copy()
 
         amp = 1 + int(amount * 8)
@@ -133,7 +141,9 @@ class VisualEngineClean:
         if amount < 0.02:
             return img.copy()
 
-        mask = self.get_static_field_mask()
+        static_mask = self.get_static_field_mask()
+        edge_mask = self.get_edge_focus_mask()
+        mask = np.clip(static_mask * 0.45 + edge_mask * 1.15, 0.0, 1.0)
         out = img.copy()
 
         shift_r_x = int(1 + amount * 6)
@@ -149,6 +159,64 @@ class VisualEngineClean:
         out[:,:,2] = (img[:,:,2] * (1.0 - mask) + b * mask).astype(np.uint8)
 
         return out
+
+    def edge_noise_overlay(self, img, amount):
+        if amount < 0.015:
+            return img.copy()
+
+        edge_mask = self.get_edge_focus_mask()
+        if np.max(edge_mask) < 1e-4:
+            return img.copy()
+
+        h, w = edge_mask.shape
+        y, x = np.indices((h, w), dtype=np.float32)
+
+        phase_a = x * 0.33 + y * 0.21 + self.time * 11.0
+        phase_b = x * -0.17 + y * 0.29 - self.time * 8.0
+        wave = np.sin(phase_a) + np.cos(phase_b)
+        wave = wave / 2.0
+
+        gate = np.clip(edge_mask * (0.4 + amount * 2.6), 0.0, 1.0)
+        signed = wave * gate * (18.0 + amount * 90.0)
+
+        out = img.astype(np.float32)
+        out[:, :, 0] += signed * 1.25
+        out[:, :, 1] -= signed * 0.35
+        out[:, :, 2] += signed * 0.85
+
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def edge_burst_displace(self, img, amount):
+        if amount < 0.02:
+            return img.copy()
+
+        edge_mask = self.get_edge_focus_mask()
+        burst = np.clip(np.power(edge_mask, 0.7) * (amount * 1.4), 0.0, 1.0)
+        if np.max(burst) < 1e-4:
+            return img.copy()
+
+        x_shift = int(np.sin(self.time * 7.7) * (2 + amount * 14))
+        y_shift = int(np.cos(self.time * 5.9) * (1 + amount * 10))
+        shifted = np.roll(img, shift=(y_shift, x_shift), axis=(0, 1))
+
+        out = img.astype(np.float32)
+        burst = np.expand_dims(burst, axis=2)
+        out = out * (1.0 - burst) + shifted.astype(np.float32) * burst
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def edge_glow(self, img, amount):
+        if amount < 0.015:
+            return img.copy()
+
+        edge_mask = np.expand_dims(self.get_edge_focus_mask(), axis=2)
+        glow = edge_mask * (20.0 + amount * 110.0)
+
+        out = img.astype(np.float32)
+        out[:, :, 0] += glow[:, :, 0] * 1.1
+        out[:, :, 1] += glow[:, :, 0] * 0.18
+        out[:, :, 2] += glow[:, :, 0] * 0.32
+
+        return np.clip(out, 0, 255).astype(np.uint8)
 
     # =========================================
     # COLOR SHIFT SULLE SUPERFICI STATICHE
@@ -204,16 +272,44 @@ class VisualEngineClean:
         high = features["high"]
         transient = features.get("transient", 0.0)
 
+        bass_mid_peak = np.clip(
+            max(low, mid) * 0.75 +
+            min(1.0, low + mid) * 0.35 +
+            rms * 0.45 +
+            transient * 0.70,
+            0.0,
+            1.0,
+        )
+        peak_drive = np.power(bass_mid_peak, 1.55)
+
         img = self.base_img.copy()
         
         # MASSA STATICA: displacement vero
-        img = self.static_field_displacement(img, amount=low * 1.1 + mid * 0.8)
+        img = self.static_field_displacement(
+            img,
+            amount=low * 1.0 + mid * 0.95 + peak_drive * 0.55,
+        )
 
         # MASSA STATICA: separazione colore
-        img = self.static_field_rgb_split(img, amount=high * 1000 + transient * 1000)
+        img = self.static_field_rgb_split(
+            img,
+            amount=high * 700 + transient * 900 + peak_drive * 0.65,
+        )
+
+        # EDGE: nei picchi bassi/medi i contorni devono strapparsi molto di più
+        img = self.edge_burst_displace(img, amount=peak_drive * 0.95 + low * 0.35)
+
+        # EDGE: noise localizzato sui bordi per rendere il segnale più leggibile
+        img = self.edge_noise_overlay(
+            img,
+            amount=high * 0.35 + transient * 0.65 + rms * 0.45 + peak_drive * 0.95,
+        )
+
+        # EDGE: leggero glow sui contorni, così il soggetto resta leggibile
+        img = self.edge_glow(img, amount=mid * 0.32 + high * 0.28 + transient * 0.22 + peak_drive * 0.35)
 
         # MASSA STATICA: push cromatico
-        img = self.static_field_color_push(img, amount=high * 0.1 + mid * 0.1)
+        img = self.static_field_color_push(img, amount=high * 0.08 + mid * 0.12 + peak_drive * 0.14)
 
         img = self.apply_red_grade(img, strength=1.0)
 
