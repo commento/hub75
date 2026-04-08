@@ -7,7 +7,7 @@ from PIL import Image
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 
 from config import WIDTH, HEIGHT
-from audio_input import start_audio_stream, get_latest_audio_frame
+from audio_input import start_audio_stream, get_latest_audio_frame, consume_overflow_count
 from audio_features import StereoFeatureExtractor
 from visual_engine import VisualEngineClean
 from pathlib import Path
@@ -369,6 +369,7 @@ def main():
             # =========================
             # AUDIO INPUT
             # =========================
+            overflow_count = consume_overflow_count()
             audio_frame = get_latest_audio_frame()
             raw = extractor.extract(audio_frame)
 
@@ -575,6 +576,7 @@ def main():
                 f"TR:{smoothed['transient']:.2f} "
                 f"ON:{onset_score:.2f} "
                 f"DST:{distortion_drive:.2f} "
+                f"OV:{overflow_count} "
                 f"ACC:{jump_accumulator:.2f} "
                 f"JP:{jump_probability:.2f}    ",
                 end="\r"
