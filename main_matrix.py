@@ -315,7 +315,6 @@ def main():
         "low": 0.0,
         "mid": 0.0,
         "high": 0.0,
-        "stereo_intensity": 0.0,
         "transient": 0.0,
     }
 
@@ -380,7 +379,6 @@ def main():
                 "low": clamp(raw["low"] * LOW_GAIN),
                 "mid": clamp(raw["mid"] * MID_GAIN),
                 "high": clamp(raw["high"] * HIGH_GAIN),
-                "stereo_intensity": clamp(raw.get("stereo_intensity", 0.0) * 2.4),
                 "transient": clamp(raw.get("transient", 0.0) * TRANSIENT_GAIN),
             }
 
@@ -391,7 +389,6 @@ def main():
             smoothed["low"] = smooth_value(smoothed["low"], boosted["low"], alpha=0.16)
             smoothed["mid"] = smooth_value(smoothed["mid"], boosted["mid"], alpha=0.16)
             smoothed["high"] = smooth_value(smoothed["high"], boosted["high"], alpha=0.14)
-            smoothed["stereo_intensity"] = smooth_value(smoothed["stereo_intensity"], boosted["stereo_intensity"], alpha=0.18)
             smoothed["transient"] = smooth_value(smoothed["transient"], boosted["transient"], alpha=0.22)
 
             # =========================
@@ -544,7 +541,6 @@ def main():
                 "low": smoothed["low"],
                 "mid": smoothed["mid"],
                 "high": smoothed["high"],
-                "stereo_intensity": smoothed["stereo_intensity"],
                 "transient": smoothed["transient"],
             }
 
@@ -571,7 +567,6 @@ def main():
                 f"LOW:{smoothed['low']:.2f} "
                 f"MID:{smoothed['mid']:.2f} "
                 f"HIGH:{smoothed['high']:.2f} "
-                f"ST:{smoothed['stereo_intensity']:.2f} "
                 f"TR:{smoothed['transient']:.2f} "
                 f"ON:{onset_score:.2f} "
                 f"DST:{distortion_drive:.2f} "

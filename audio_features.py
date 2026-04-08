@@ -15,7 +15,6 @@ class StereoFeatureExtractor:
             "high": 0.0,
             "balance": 0.0,
             "width": 0.0,
-            "stereo_intensity": 0.0,
             "transient": 0.0,
         }
 
@@ -57,9 +56,6 @@ class StereoFeatureExtractor:
         width = float(np.mean(side_spec) / (np.mean(mono_spec) + 1e-6))
         width = np.clip(width * 1.6, 0.0, 1.0)
 
-        side_rms = float(np.sqrt(np.mean(side ** 2) + 1e-9))
-        stereo_intensity = np.clip((side_rms / (rms_raw + 1e-6)) * rms * 2.4, 0.0, 1.0)
-
         left_rms = float(np.sqrt(np.mean(left ** 2) + 1e-9))
         right_rms = float(np.sqrt(np.mean(right ** 2) + 1e-9))
         balance = np.clip((right_rms - left_rms) * 7.0, -1.0, 1.0)
@@ -78,7 +74,6 @@ class StereoFeatureExtractor:
         mid *= gate
         high *= gate
         width *= gate
-        stereo_intensity *= gate
         balance *= gate
         transient *= gate
 
@@ -88,7 +83,6 @@ class StereoFeatureExtractor:
         self._smooth("high", high, SMOOTH_FAST)
         self._smooth("balance", balance, SMOOTH_SLOW)
         self._smooth("width", width, SMOOTH_SLOW)
-        self._smooth("stereo_intensity", stereo_intensity, 0.22)
         self._smooth("transient", transient, 0.50)
 
         for key in self.state:

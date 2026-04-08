@@ -165,48 +165,6 @@ class VisualEngineClean:
         out = img.astype(np.float32) * (1.0 - alpha) + self.base_img.astype(np.float32) * alpha
         return np.clip(out, 0, 255).astype(np.uint8)
 
-    def stereo_pixel_sort(self, img, stereo_intensity, rms):
-        amount = np.clip(stereo_intensity * (0.45 + rms * 0.9), 0.0, 1.0)
-        if amount < 0.05:
-            return img.copy()
-
-        out = img.copy()
-        luma = self.compute_luma(img)
-        mask = np.clip(self.edge_map * 0.65 + self.get_static_field_mask() * 0.35, 0.0, 1.0)
-
-        h, w = luma.shape
-        row_step = 2 if amount < 0.45 else 1
-        run = max(4, min(18, int(4 + amount * 14)))
-        blend = np.clip(0.14 + amount * 0.56, 0.0, 0.9)
-
-        for y in range(0, h, row_step):
-            row_mask = mask[y]
-            row_luma = luma[y]
-            active = np.where(row_mask > (0.16 - amount * 0.05))[0]
-            if len(active) < run:
-                continue
-
-            start = active[0]
-            end = active[-1]
-            for x0 in range(start, end - run + 1, run):
-                x1 = min(w, x0 + run)
-                local_mask = float(np.mean(row_mask[x0:x1]))
-                if local_mask < 0.12:
-                    continue
-
-                segment = out[y, x0:x1].copy()
-                order = np.argsort(row_luma[x0:x1])
-                if ((x0 // run) + y) % 2 == 0:
-                    order = order[::-1]
-                sorted_segment = segment[order]
-                strength = np.clip(local_mask * blend, 0.0, 1.0)
-                out[y, x0:x1] = (
-                    segment.astype(np.float32) * (1.0 - strength) +
-                    sorted_segment.astype(np.float32) * strength
-                ).astype(np.uint8)
-
-        return out
-
     def update(self, features):
         self.time += 0.06
 
@@ -214,7 +172,6 @@ class VisualEngineClean:
         low = features["low"]
         mid = features["mid"]
         high = features["high"]
-        stereo_intensity = features.get("stereo_intensity", 0.0)
         transient = features.get("transient", 0.0)
 
         img = self.base_img.copy()
@@ -222,7 +179,6 @@ class VisualEngineClean:
         img = self.static_field_displacement(img, amount=low * 1.1 + mid * 0.8)
         img = self.static_field_rgb_split(img, amount=high * 1000 + transient * 1000)
         img = self.static_field_color_push(img, amount=high * 0.1 + mid * 0.1)
-        img = self.stereo_pixel_sort(img, stereo_intensity=stereo_intensity, rms=rms)
         img = self.apply_red_grade(img, strength=1.0)
         img = self.preserve_moving_areas(img)
         img = self.preserve_stillness(img, rms)
