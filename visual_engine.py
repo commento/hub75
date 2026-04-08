@@ -13,6 +13,7 @@ class VisualEngineClean:
         self.edge_map = self.compute_edge_map(self.luma)
         self.prev_luma = self.luma.copy()
         self.motion_map = np.zeros_like(self.luma)
+        self.prev_output = self.base_img.copy()
         self.time = 0.0
 
     def apply_red_grade(self, img, strength=1.0):
@@ -165,6 +166,97 @@ class VisualEngineClean:
         out = img.astype(np.float32) * (1.0 - alpha) + self.base_img.astype(np.float32) * alpha
         return np.clip(out, 0, 255).astype(np.uint8)
 
+    def datamosh_delta_repeat(self, img, amount):
+        if amount < 0.10:
+            return img.copy()
+
+        prev = self.prev_output.astype(np.float32)
+        current = img.astype(np.float32)
+
+        static_mask = self.get_static_field_mask()
+        edge_mask = self.edge_map
+        persistence = np.clip(static_mask * 0.65 + edge_mask * 0.35, 0.0, 1.0)
+
+        block = 2 if amount > 0.72 else 4
+        h, w = persistence.shape
+        coarse_h = max(1, h // block)
+        coarse_w = max(1, w // block)
+
+        coarse_mask = persistence.reshape(coarse_h, block, coarse_w, block).mean(axis=(1, 3))
+
+        y, x = np.indices((coarse_h, coarse_w), dtype=np.float32)
+        phase_a = x * 0.73 + y * 0.41 + self.time * 6.0
+        phase_b = x * -0.52 + y * 0.67 - self.time * 4.5
+
+        shift_x = np.rint((np.sin(phase_a) + np.cos(phase_b)) * (0.8 + amount * 4.0)).astype(np.int32)
+        shift_y = np.rint((np.cos(phase_a * 0.8) - np.sin(phase_b * 1.1)) * (0.6 + amount * 3.0)).astype(np.int32)
+
+        moshed = current.copy()
+        hold_strength = np.clip(0.18 + amount * 0.72, 0.0, 0.95)
+
+        for by in range(coarse_h):
+            y0 = by * block
+            y1 = min(h, y0 + block)
+            for bx in range(coarse_w):
+                x0 = bx * block
+                x1 = min(w, x0 + block)
+
+                local_mask = coarse_mask[by, bx]
+                if local_mask < 0.08:
+                    continue
+
+                src_y0 = int(np.clip(y0 + shift_y[by, bx], 0, h - (y1 - y0)))
+                src_x0 = int(np.clip(x0 + shift_x[by, bx], 0, w - (x1 - x0)))
+                src_y1 = src_y0 + (y1 - y0)
+                src_x1 = src_x0 + (x1 - x0)
+
+                repeated = prev[src_y0:src_y1, src_x0:src_x1]
+                strength = np.clip(local_mask * hold_strength, 0.0, 1.0)
+                moshed[y0:y1, x0:x1] = (
+                    current[y0:y1, x0:x1] * (1.0 - strength) +
+                    repeated * strength
+                )
+
+        return np.clip(moshed, 0, 255).astype(np.uint8)
+
+    def datamosh_pixel_sort_decay(self, img, amount):
+        if amount < 0.14:
+            return img.copy()
+
+        out = img.astype(np.float32)
+        prev = self.prev_output.astype(np.float32)
+        edge_mask = np.clip(self.edge_map, 0.0, 1.0)
+        static_mask = self.get_static_field_mask()
+        collapse = np.clip(edge_mask * 0.55 + static_mask * 0.60, 0.0, 1.0)
+
+        h, w = collapse.shape
+        row_step = 1 if amount > 0.7 else 2
+        run = max(3, min(10, int(3 + amount * 7)))
+        blend = np.clip(0.15 + amount * 0.55, 0.0, 0.92)
+
+        for y in range(0, h, row_step):
+            row_mask = collapse[y]
+            active = np.where(row_mask > 0.22)[0]
+            if len(active) < run:
+                continue
+
+            start = active[0]
+            end = active[-1]
+            for x0 in range(start, end - run + 1, run):
+                x1 = min(w, x0 + run)
+                local = float(np.mean(row_mask[x0:x1]))
+                if local < 0.22:
+                    continue
+
+                source = prev[y, x0:x1]
+                target = out[y, x0:x1]
+                sort_idx = np.argsort(np.sum(source, axis=1))
+                reordered = source[sort_idx]
+                strength = np.clip(local * blend, 0.0, 1.0)
+                out[y, x0:x1] = target * (1.0 - strength) + reordered * strength
+
+        return np.clip(out, 0, 255).astype(np.uint8)
+
     def update(self, features):
         self.time += 0.06
 
@@ -173,14 +265,26 @@ class VisualEngineClean:
         mid = features["mid"]
         high = features["high"]
         transient = features.get("transient", 0.0)
+        mosh_drive = np.clip(
+            rms * 0.40 +
+            low * 0.38 +
+            mid * 0.34 +
+            transient * 0.12,
+            0.0,
+            1.0,
+        )
+        mosh_drive = np.clip((mosh_drive - 0.58) / 0.16, 0.0, 1.0)
 
         img = self.base_img.copy()
 
         img = self.static_field_displacement(img, amount=low * 1.1 + mid * 0.8)
         img = self.static_field_rgb_split(img, amount=high * 1000 + transient * 1000)
         img = self.static_field_color_push(img, amount=high * 0.1 + mid * 0.1)
+        img = self.datamosh_delta_repeat(img, amount=mosh_drive)
+        img = self.datamosh_pixel_sort_decay(img, amount=mosh_drive)
         img = self.apply_red_grade(img, strength=1.0)
         img = self.preserve_moving_areas(img)
         img = self.preserve_stillness(img, rms)
+        self.prev_output = img.copy()
 
         return img
